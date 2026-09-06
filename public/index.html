@@ -511,19 +511,24 @@ function attachAppHandlers() {
   const classifyBtn = document.getElementById("classifyBtn");
   if (classifyBtn) classifyBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
-    const redacted = redactText(g.description, g.citizenName, g.citizenContact);
     document.getElementById("classifyResult").innerHTML = '<div style="margin-top:8px;"><span class="spinner"></span>Redacting PII, then classifying...</div>';
     try {
-      const out = await callClaude(
-        'You are the GovernIQ grievance classifier. Input is PII-redacted. Respond ONLY as JSON: {"category":"","severity":"Low|Medium|High|Critical","authority":"","action":"","confidence":"High|Medium|Low"}',
-        redacted
-      );
+      const res = await fetch("/api/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: g.title, description: g.description, locationText: g.locationText,
+          citizenName: g.citizenName, citizenContact: g.citizenContact,
+        }),
+      });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
       const knownAuthorities = ["PHED", "PWD", "Municipal", "Electricity Department", "Health Department"];
       const requiresExtraScrutiny = !knownAuthorities.some(k => out.authority.toLowerCase().includes(k.toLowerCase()));
-      g.aiSuggestion = { ...out, priority: out.severity.toUpperCase(), redactedSent: redacted, requiresExtraScrutiny };
+      g.aiSuggestion = { ...out, priority: out.severity.toUpperCase(), requiresExtraScrutiny };
       g.priority = out.severity.toUpperCase();
       if (isValidTransition(g.status, "PENDING_REVIEW")) g.status = "PENDING_REVIEW";
-      addAudit(g, "AI_CLASSIFIED", `Confidence: ${out.confidence}`);
+      addAudit(g, "AI_CLASSIFIED", `Confidence: ${out.confidence} — classified server-side`);
       render(); currentView = "DETAIL"; currentCaseId = g.id;
     } catch (e) {
       document.getElementById("classifyResult").innerHTML = '<div style="color:var(--brick);margin-top:8px;">Could not classify right now.</div>';

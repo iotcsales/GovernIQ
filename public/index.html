@@ -206,12 +206,39 @@ function renderLogin() {
     </div></div>`;
 }
 
+async function loadGrievances() {
+  try {
+    const res = await fetch("/api/grievances");
+    const rows = await res.json();
+    grievances = rows.map(r => ({
+      id: r.id,
+      displayId: r.display_id,
+      status: r.status,
+      title: r.title,
+      description: r.description,
+      locationText: r.location_text,
+      citizenName: r.citizen_name,
+      citizenContact: r.citizen_contact,
+      category: r.category,
+      priority: r.priority,
+      responsibleAuthority: r.responsible_authority,
+      assignedTo: r.assigned_to,
+      aiSuggestion: null,       // not yet persisted — see note below
+      tasks: [], evidence: [],  // not yet persisted — added in a later step
+      audit: [{ action: "CREATED", actor: "database", at: r.created_at, detail: "Loaded from D1" }],
+    }));
+  } catch (e) {
+    grievances = [];
+  }
+}
+
 function attachLoginHandlers() {
-  document.getElementById("loginBtn").addEventListener("click", () => {
+  document.getElementById("loginBtn").addEventListener("click", async () => {
     const name = document.getElementById("loginName").value || "Staff Member";
     const role = document.getElementById("loginRole").value;
     session = { name, role, userId: name.toLowerCase().replace(/\s+/g, "-"), tenantId: "pilot-office-1" };
     currentView = "MY_DAY";
+    await loadGrievances();
     render();
   });
 }
@@ -444,21 +471,41 @@ function attachAppHandlers() {
   if (newBtn) newBtn.addEventListener("click", () => { currentView = "NEW"; render(); });
 
   const saveDraftBtn = document.getElementById("saveDraftBtn");
-  if (saveDraftBtn) saveDraftBtn.addEventListener("click", () => {
-    const g = {
-      id: "local-" + (idCounter++), displayId: null, status: "DRAFT",
+  if (saveDraftBtn) saveDraftBtn.addEventListener("click", async () => {
+    const payload = {
       title: document.getElementById("fTitle").value,
       description: document.getElementById("fDesc").value,
       locationText: document.getElementById("fLoc").value,
       citizenName: document.getElementById("fName").value,
       citizenContact: document.getElementById("fContact").value,
-      category: null, priority: null, responsibleAuthority: null,
-      aiSuggestion: null, assignedTo: null, tasks: [], evidence: [],
-      audit: [],
+      createdBy: session.name,
     };
-    addAudit(g, "CREATED", "Draft saved by field intake");
-    grievances.unshift(g);
-    currentCaseId = g.id; currentView = "DETAIL"; render();
+    const saveBtnEl = document.getElementById("saveDraftBtn");
+    saveBtnEl.disabled = true;
+    saveBtnEl.textContent = "Saving...";
+    try {
+      const res = await fetch("/api/grievances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const created = await res.json();
+      const g = {
+        id: created.id, displayId: null, status: created.status,
+        title: payload.title, description: payload.description, locationText: payload.locationText,
+        citizenName: payload.citizenName, citizenContact: payload.citizenContact,
+        category: null, priority: null, responsibleAuthority: null,
+        aiSuggestion: null, assignedTo: null, tasks: [], evidence: [],
+        audit: [],
+      };
+      addAudit(g, "CREATED", "Draft saved by field intake — persisted to database");
+      grievances.unshift(g);
+      currentCaseId = g.id; currentView = "DETAIL"; render();
+    } catch (e) {
+      saveBtnEl.disabled = false;
+      saveBtnEl.textContent = "Save draft";
+      alert("Could not save — check your connection and try again.");
+    }
   });
 
   const classifyBtn = document.getElementById("classifyBtn");
@@ -489,7 +536,7 @@ function attachAppHandlers() {
     if (!hasPermission(session.role, "APPROVE")) return;
     g.category = g.aiSuggestion.category;
     g.responsibleAuthority = g.aiSuggestion.authority;
-    g.displayId = "GOV-GRV-2026-" + String(g.id.replace("local-", "")).padStart(6, "0");
+    g.displayId = "GOV-GRV-2026-" + g.id.replace(/-/g, "").slice(0, 6).toUpperCase();
     if (isValidTransition(g.status, "NEW")) g.status = "NEW";
     addAudit(g, "HUMAN_REVIEWED", "Approved AI suggestion — official case opened");
     render();

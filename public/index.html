@@ -631,9 +631,14 @@ function attachAppHandlers() {
     const wrap = document.getElementById("askAnswerWrap"), inner = document.getElementById("askAnswerInner");
     wrap.style.display = "flex"; inner.innerHTML = '<div><span class="spinner"></span>Thinking...</div>';
     const canSee = hasPermission(session.role, "SENSITIVE_DATA_ACCESS");
-    const context = grievances.map(g => `${g.displayId || g.id}: ${g.title}, status ${g.status}${g.priority ? ", priority " + g.priority : ""}` + (canSee ? `, citizen ${g.citizenName}` : "")).join("\\n") || "No cases yet.";
     try {
-      const out = await callClaude(`Answer ONLY from this office data:\\n${context}\\nIf asked for something not available to this role, say so. Respond ONLY as JSON: {"answer":"","confidence":"High|Medium|Low"}`, q);
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q, canSeeSensitive: canSee }),
+      });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
       inner.innerHTML = `<div style="font-size:13px;"><b>Answer:</b> ${out.answer}</div><div style="font-size:12px;color:var(--slate);margin-top:4px;">Confidence: ${out.confidence}</div>`;
     } catch (e) { inner.innerHTML = '<div>Could not reach GovernIQ right now.</div>'; }
   });

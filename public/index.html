@@ -229,7 +229,10 @@ function tagClass(status) {
 function renderApp() {
   return `
     <div class="topbar">
-      <div class="who">Signed in as <b>${session.name}</b> (${session.role.replace(/_/g, " ")})</div>
+      <div class="who" style="display:flex;align-items:center;gap:8px;">
+        <img src="logo.png" alt="GovernIQ" style="width:26px;height:26px;border-radius:6px;" />
+        Signed in as <b>${session.name}</b> (${session.role.replace(/_/g, " ")})
+      </div>
       <button id="logoutBtn">Log out</button>
     </div>
     <div class="tabs">
@@ -241,7 +244,7 @@ function renderApp() {
       currentView === "LIST" ? renderList() :
       currentView === "NEW" ? renderNewForm() :
       renderDetail()
-    }</div>
+    }<div class="footer-credit">Built by Team IOTC</div></div>
     ${renderAskBar()}
   `;
 }

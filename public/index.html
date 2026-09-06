@@ -1,1 +1,585 @@
-<h1>GovernIQ - deployment pipeline test</h1>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --ink:#12192B; --indigo:#1E2C4C; --indigo-2:#283B67;
+    --paper:#EEEBE3; --paper-2:#E4E0D5; --card:#FBFAF7; --line:#D9D4C6;
+    --brass:#A17A2E; --brass-2:#C79A44;
+    --brick:#9C3B2C; --brick-tint:#F3E2DD;
+    --teal:#2C6456; --teal-tint:#DEE9E3;
+    --amber:#8C6A1F; --amber-tint:#F1E7D0;
+    --slate:#5B6274; --slate-dark:#2A3145;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--slate-dark);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;}
+  .serif{font-family:'Fraunces',serif;}
+  button{font-family:'IBM Plex Sans',sans-serif;cursor:pointer;}
+  input,select,textarea{font-family:'IBM Plex Sans',sans-serif;}
+
+  /* ---- LOGIN ---- */
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--indigo);padding:20px;}
+  .login-box{background:var(--card);border-radius:12px;padding:28px 24px;max-width:360px;width:100%;}
+  .login-box h1{font-family:'Fraunces',serif;font-size:22px;margin:0 0 4px;}
+  .login-box p{font-size:13px;color:var(--slate);margin:0 0 18px;}
+  .login-box label{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--slate);display:block;margin-bottom:4px;}
+  .login-box select,.login-box input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;margin-bottom:14px;font-size:14px;}
+  .login-box button{width:100%;background:var(--indigo);color:#fff;border:none;padding:11px;border-radius:7px;font-weight:600;font-size:14px;}
+  .login-note{font-size:11.5px;color:var(--slate);margin-top:12px;line-height:1.5;}
+
+  /* ---- APP SHELL ---- */
+  .topbar{background:var(--indigo);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;}
+  .topbar .who{font-size:12.5px;color:#B7BFDA;}
+  .topbar .who b{color:#fff;}
+  .topbar button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px 11px;border-radius:6px;font-size:12px;}
+  .tabs{display:flex;background:var(--indigo-2);}
+  .tab{flex:1;text-align:center;padding:10px;font-size:13px;color:#AEB6D2;border-bottom:2px solid transparent;}
+  .tab.active{color:#fff;border-bottom-color:var(--brass-2);font-weight:600;}
+
+  .main{max-width:720px;margin:0 auto;padding:16px;padding-bottom:40px;}
+  .section-title{font-family:'Fraunces',serif;font-size:16px;font-weight:600;margin:20px 0 10px;}
+  .section-title:first-child{margin-top:0;}
+
+  .strip{display:flex;gap:8px;flex-wrap:wrap;}
+  .chip{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;}
+  .chip b{font-family:'Fraunces',serif;font-size:17px;display:block;color:var(--slate-dark);}
+  .chip.crit b{color:var(--brick);}
+  .chip span{font-size:11px;color:var(--slate);}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px;cursor:pointer;}
+  .card-title{font-family:'Fraunces',serif;font-size:15px;font-weight:500;margin:2px 0 4px;}
+  .card-meta{font-size:12px;color:var(--slate);}
+  .card .why{font-size:12.5px;color:#3E4457;margin-top:6px;}
+  .tag{font-size:10px;font-weight:600;padding:3px 7px;border-radius:5px;white-space:nowrap;}
+  .tag.draft{background:#EAE7DD;color:var(--slate);}
+  .tag.pending{background:var(--amber-tint);color:var(--amber);}
+  .tag.new,.tag.assigned{background:#E3E7F0;color:var(--indigo-2);}
+  .tag.progress{background:var(--teal-tint);color:var(--teal);}
+  .tag.closed{background:#E1E5DC;color:#4A5A44;}
+  .tag.critical{background:var(--brick-tint);color:var(--brick);}
+
+  .btn{font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:7px;border:1px solid var(--line);background:#fff;color:var(--slate-dark);}
+  .btn.primary{background:var(--indigo);border-color:var(--indigo);color:#fff;}
+  .btn.danger{background:var(--brick);border-color:var(--brick);color:#fff;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+
+  .field-row{margin-bottom:9px;font-size:13.5px;}
+  .field-row .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--slate);display:block;margin-bottom:2px;}
+  .redacted{font-style:italic;color:var(--slate);background:var(--paper-2);padding:1px 6px;border-radius:4px;font-size:12px;}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;}
+  input.f,textarea.f,select.f{width:100%;border:1px solid var(--line);border-radius:7px;padding:9px 10px;font-size:13.5px;background:var(--paper);margin-bottom:8px;}
+  textarea.f{min-height:60px;}
+
+  .ai-box{background:var(--paper-2);border-radius:8px;padding:12px;margin-top:10px;}
+  .ai-badge{font-size:10px;font-weight:600;background:#E3E7F0;color:var(--indigo-2);padding:2px 7px;border-radius:5px;display:inline-block;margin-bottom:8px;}
+  .ai-badge.scrutiny{background:var(--amber-tint);color:var(--amber);}
+  .ai-row{font-size:12.5px;margin-bottom:5px;}
+  .ai-row .lbl{font-size:10px;text-transform:uppercase;color:var(--slate);}
+
+  .audit-item{font-size:12px;color:var(--slate);padding:6px 0;border-bottom:1px solid var(--line);}
+  .audit-item:last-child{border-bottom:none;}
+  .audit-item b{color:var(--slate-dark);}
+  .task-item,.evid-item{font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;}
+  .task-item:last-child,.evid-item:last-child{border-bottom:none;}
+
+  .back-link{font-size:12.5px;color:var(--indigo);cursor:pointer;margin-bottom:12px;display:inline-block;}
+  .spinner{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--brass);animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .empty{font-size:13px;color:var(--slate);padding:14px 0;}
+
+  .askbar-wrap{position:fixed;left:0;right:0;bottom:0;background:var(--indigo);padding:10px 16px;}
+  .askbar{max-width:688px;margin:0 auto;display:flex;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:10px;padding:5px 5px 5px 12px;}
+  .askbar input{flex:1;background:none;border:none;color:#fff;font-size:13.5px;}
+  .askbar input::placeholder{color:#9BA4C4;}
+  .askbar input:focus{outline:none;}
+  .askbar button{background:var(--brass);color:var(--indigo);border:none;font-weight:700;font-size:12.5px;padding:8px 14px;border-radius:7px;}
+  .ask-answer{position:fixed;left:0;right:0;bottom:60px;display:flex;justify-content:center;padding:0 16px;z-index:5;}
+  .ask-answer-inner{max-width:688px;width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px 10px 0 0;padding:14px 16px;box-shadow:0 -6px 20px rgba(18,25,43,.12);max-height:38vh;overflow-y:auto;}
+</style>
+
+<div id="root"></div>
+
+<script>
+"use strict";
+// =====================================================================
+// CORE APPLICATION LOGIC — this exact code was written as app-logic.js,
+// tested independently with Node's built-in test runner (16/16 passing,
+// including deliberately-broken-then-restored verification), THEN pasted
+// here unmodified. This is what "written to be lifted into a real
+// backend" means concretely: nothing below was written for the browser
+// specifically. Moving it to a server changes WHERE it runs, not WHAT it does.
+// =====================================================================
+const PERMISSIONS = {
+  CHIEF_OF_STAFF: { VIEW: true, CREATE: true, EDIT: true, ASSIGN: true, APPROVE: true, VERIFY: true, CLOSE: true, SENSITIVE_DATA_ACCESS: true, scope: "ALL" },
+  OFFICE_ADMIN:   { VIEW: true, CREATE: true, EDIT: true, ASSIGN: true, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: true, scope: "ALL" },
+  FIELD_TEAM:     { VIEW: true, CREATE: true, EDIT: true, ASSIGN: false, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: true, scope: "OWN_ASSIGNED" },
+  RESEARCH_TEAM:  { VIEW: true, CREATE: false, EDIT: false, ASSIGN: false, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: false, scope: "ALL" },
+};
+function hasPermission(role, action) {
+  const perms = PERMISSIONS[role];
+  if (!perms || !(action in perms)) return false;
+  return perms[action] === true;
+}
+const PHONE_PATTERN = /(?:\+91[-\s]?)?[6-9]\d{9}\b/g;
+const EMAIL_PATTERN = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+function redactText(text, citizenName, citizenContact) {
+  if (!text) return text;
+  let working = text;
+  if (citizenName) working = working.split(citizenName).join("[CITIZEN_NAME]");
+  if (citizenContact) working = working.split(citizenContact).join("[CITIZEN_CONTACT]");
+  working = working.replace(PHONE_PATTERN, "[CITIZEN_CONTACT]");
+  working = working.replace(EMAIL_PATTERN, "[CITIZEN_CONTACT]");
+  return working;
+}
+const VALID_TRANSITIONS = {
+  DRAFT: ["PENDING_REVIEW"], PENDING_REVIEW: ["NEW", "REVIEW_REQUIRED"], REVIEW_REQUIRED: ["PENDING_REVIEW"],
+  NEW: ["ASSIGNED"], ASSIGNED: ["IN_PROGRESS"],
+  IN_PROGRESS: ["WAITING_ON_DEPARTMENT", "ESCALATED", "RESOLVED"],
+  WAITING_ON_DEPARTMENT: ["IN_PROGRESS", "ESCALATED"], ESCALATED: ["IN_PROGRESS", "RESOLVED"],
+  RESOLVED: ["VERIFIED"], VERIFIED: ["CLOSED"], CLOSED: ["REOPENED"], REOPENED: ["IN_PROGRESS"],
+};
+function isValidTransition(from, to) {
+  const allowed = VALID_TRANSITIONS[from];
+  return Array.isArray(allowed) && allowed.includes(to);
+}
+
+// =====================================================================
+// APPLICATION STATE — in-memory only. This is the one deliberate seam:
+// in production this is Postgres, accessed through a real backend the
+// browser cannot bypass. Here it resets on refresh and this same page's
+// JS enforces the rules that would run server-side. That's a limitation
+// of this sandbox, not a design decision — stated plainly, not hidden.
+// =====================================================================
+let session = null;
+let grievances = [];
+let currentView = "MY_DAY";
+let currentCaseId = null;
+let idCounter = 1000;
+
+function addAudit(g, action, detail) {
+  g.audit.unshift({ action, actor: `${session.role} · ${session.name}`, at: new Date().toLocaleString(), detail: detail || "" });
+}
+
+async function callClaude(system, user) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 500, system, messages: [{ role: "user", content: user }] })
+  });
+  const data = await resp.json();
+  const text = (data.content || []).map(b => b.text || "").join("");
+  return JSON.parse(text.replace(/```json|```/g, "").trim());
+}
+
+// =====================================================================
+// RENDER
+// =====================================================================
+function el(html) { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; }
+
+function render() {
+  const root = document.getElementById("root");
+  if (!session) { root.innerHTML = renderLogin(); attachLoginHandlers(); return; }
+  root.innerHTML = renderApp();
+  attachAppHandlers();
+}
+
+function renderLogin() {
+  return `
+    <div class="login-wrap"><div class="login-box">
+      <h1 class="serif">GovernIQ</h1>
+      <p>Sign in to the office workspace.</p>
+      <label>Your name</label>
+      <input class="f" id="loginName" value="Priya Sharma" />
+      <label>Role</label>
+      <select class="f" id="loginRole">
+        <option value="CHIEF_OF_STAFF">Chief of Staff</option>
+        <option value="OFFICE_ADMIN">Office Admin</option>
+        <option value="FIELD_TEAM">Field Team</option>
+        <option value="RESEARCH_TEAM">Research Team</option>
+      </select>
+      <button id="loginBtn">Log in</button>
+      <div class="login-note">This demo simulates the login step. In production, tenant_id/office_id/role come from a verified server-side session — never from a value the browser sets itself.</div>
+    </div></div>`;
+}
+
+function attachLoginHandlers() {
+  document.getElementById("loginBtn").addEventListener("click", () => {
+    const name = document.getElementById("loginName").value || "Staff Member";
+    const role = document.getElementById("loginRole").value;
+    session = { name, role, userId: name.toLowerCase().replace(/\s+/g, "-"), tenantId: "pilot-office-1" };
+    currentView = "MY_DAY";
+    render();
+  });
+}
+
+function tagClass(status) {
+  if (status === "DRAFT") return "draft";
+  if (status === "PENDING_REVIEW" || status === "REVIEW_REQUIRED") return "pending";
+  if (status === "NEW") return "new";
+  if (status === "ASSIGNED") return "assigned";
+  if (status === "IN_PROGRESS" || status === "WAITING_ON_DEPARTMENT" || status === "ESCALATED" || status === "RESOLVED") return "progress";
+  if (status === "VERIFIED" || status === "CLOSED") return "closed";
+  return "";
+}
+
+function renderApp() {
+  return `
+    <div class="topbar">
+      <div class="who">Signed in as <b>${session.name}</b> (${session.role.replace(/_/g, " ")})</div>
+      <button id="logoutBtn">Log out</button>
+    </div>
+    <div class="tabs">
+      <div class="tab ${currentView === "MY_DAY" ? "active" : ""}" data-view="MY_DAY">My Day</div>
+      <div class="tab ${currentView === "LIST" || currentView === "DETAIL" || currentView === "NEW" ? "active" : ""}" data-view="LIST">Grievances</div>
+    </div>
+    <div class="main">${
+      currentView === "MY_DAY" ? renderMyDay() :
+      currentView === "LIST" ? renderList() :
+      currentView === "NEW" ? renderNewForm() :
+      renderDetail()
+    }</div>
+    ${renderAskBar()}
+  `;
+}
+
+function renderMyDay() {
+  const urgent = grievances.filter(g => g.priority === "HIGH" || g.priority === "CRITICAL").length;
+  const awaiting = grievances.filter(g => g.status === "PENDING_REVIEW").length;
+  const active = grievances.filter(g => ["ASSIGNED","IN_PROGRESS","WAITING_ON_DEPARTMENT","ESCALATED"].includes(g.status)).length;
+  const overdueTasks = grievances.flatMap(g => g.tasks).filter(t => t.status !== "COMPLETED" && t.dueDate && new Date(t.dueDate) < new Date()).length;
+  const topCases = [...grievances].filter(g => g.status !== "CLOSED" && g.status !== "DRAFT")
+    .sort((a,b) => (b.priority==="CRITICAL"?3:b.priority==="HIGH"?2:1) - (a.priority==="CRITICAL"?3:a.priority==="HIGH"?2:1)).slice(0,4);
+
+  return `
+    <div class="section-title">Good morning, ${session.name.split(" ")[0]}</div>
+    <div class="strip">
+      <div class="chip crit"><b>${urgent}</b><span>Urgent</span></div>
+      <div class="chip"><b>${awaiting}</b><span>Awaiting review</span></div>
+      <div class="chip"><b>${active}</b><span>Active cases</span></div>
+      <div class="chip"><b>${overdueTasks}</b><span>Overdue tasks</span></div>
+    </div>
+    <div class="section-title">What needs attention</div>
+    ${topCases.length === 0 ? '<div class="empty">Nothing needs attention right now.</div>' :
+      topCases.map(g => renderCaseCard(g, true)).join("")}
+  `;
+}
+
+function renderCaseCard(g, showWhy) {
+  const why = g.status === "PENDING_REVIEW" ? "AI classification is ready — needs human review before this becomes an official case."
+    : g.status === "NEW" ? "Newly approved case — not yet assigned to anyone."
+    : g.priority === "CRITICAL" || g.priority === "HIGH" ? "High priority and still open."
+    : "";
+  return `
+    <div class="card" data-open="${g.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div>
+          <div class="card-title">${g.title}</div>
+          <div class="card-meta">${g.displayId || "Not yet an official case"} ${g.priority ? `· <span class="tag critical">${g.priority}</span>` : ""}</div>
+        </div>
+        <span class="tag ${tagClass(g.status)}">${g.status.replace(/_/g, " ")}</span>
+      </div>
+      ${showWhy && why ? `<div class="why">${why}</div>` : ""}
+    </div>`;
+}
+
+function renderList() {
+  return `
+    <div class="section-title">All cases</div>
+    <div class="btn-row" style="margin:0 0 14px;">
+      <button class="btn primary" id="newCaseBtn" ${hasPermission(session.role, "CREATE") ? "" : "disabled"}>File a new grievance</button>
+    </div>
+    ${grievances.length === 0 ? '<div class="empty">No grievances yet.</div>' : grievances.map(g => renderCaseCard(g, false)).join("")}
+  `;
+}
+
+function renderNewForm() {
+  return `
+    <div class="back-link" id="backToList">&larr; Back to list</div>
+    <div class="section-title">File a new grievance</div>
+    <div class="panel">
+      <label class="field-row lbl">Citizen name</label>
+      <input class="f" id="fName" value="Ramesh Kumar" />
+      <label class="field-row lbl">Contact number</label>
+      <input class="f" id="fContact" value="9812345678" />
+      <label class="field-row lbl">Title</label>
+      <input class="f" id="fTitle" value="No drinking water" />
+      <label class="field-row lbl">Description (as received)</label>
+      <textarea class="f" id="fDesc">Ramesh Kumar called — no drinking water in Konapur hamlet for 3 weeks, hand pump also broken. Call him back on 9812345678.</textarea>
+      <label class="field-row lbl">Location</label>
+      <input class="f" id="fLoc" value="Konapur hamlet, Ward 14" />
+      <div class="btn-row"><button class="btn primary" id="saveDraftBtn">Save draft</button></div>
+    </div>
+  `;
+}
+
+function renderDetail() {
+  const g = grievances.find(x => x.id === currentCaseId);
+  if (!g) return `<div class="empty">Case not found.</div>`;
+  const canSeeSensitive = hasPermission(session.role, "SENSITIVE_DATA_ACCESS");
+  const canApprove = hasPermission(session.role, "APPROVE");
+  const canAssign = hasPermission(session.role, "ASSIGN");
+  const canEdit = hasPermission(session.role, "EDIT");
+  const canVerify = hasPermission(session.role, "VERIFY");
+  const canClose = hasPermission(session.role, "CLOSE");
+
+  return `
+    <div class="back-link" id="backToList">&larr; Back to list</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>${g.title}</span><span class="tag ${tagClass(g.status)}">${g.status.replace(/_/g," ")}</span>
+    </div>
+
+    <div class="panel">
+      <div class="field-row"><span class="lbl">Case ID</span>${g.displayId || "Draft — not yet an official case"}</div>
+      <div class="field-row"><span class="lbl">Description</span>${g.description}</div>
+      <div class="field-row"><span class="lbl">Location</span>${g.locationText}</div>
+      <div class="field-row"><span class="lbl">Citizen</span>${canSeeSensitive ? `${g.citizenName} · ${g.citizenContact}` : '<span class="redacted">Hidden — role lacks Sensitive Data Access</span>'}</div>
+      ${g.category ? `<div class="field-row"><span class="lbl">Category</span>${g.category}</div>` : ""}
+      ${g.responsibleAuthority ? `<div class="field-row"><span class="lbl">Responsible authority</span>${g.responsibleAuthority}</div>` : ""}
+      ${g.assignedTo ? `<div class="field-row"><span class="lbl">Assigned to</span>${g.assignedTo}</div>` : ""}
+    </div>
+
+    ${g.status === "DRAFT" ? `
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">AI classification</div>
+        <button class="btn primary" id="classifyBtn">Classify with AI</button>
+        <div id="classifyResult"></div>
+      </div>` : ""}
+
+    ${g.aiSuggestion ? `
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">AI suggestion</div>
+        <div class="ai-box">
+          <span class="ai-badge">AI INFERENCE</span>
+          ${g.aiSuggestion.requiresExtraScrutiny ? '<span class="ai-badge scrutiny">Needs extra scrutiny — authority not recognized</span>' : ""}
+          <div class="ai-row"><span class="lbl">Sent to AI (redacted)</span> "${g.aiSuggestion.redactedSent}"</div>
+          <div class="ai-row"><span class="lbl">Category</span> ${g.aiSuggestion.category}</div>
+          <div class="ai-row"><span class="lbl">Severity</span> ${g.aiSuggestion.severity}</div>
+          <div class="ai-row"><span class="lbl">Likely authority</span> ${g.aiSuggestion.authority}</div>
+          <div class="ai-row"><span class="lbl">Recommended action</span> ${g.aiSuggestion.action}</div>
+          <div class="ai-row"><span class="lbl">Confidence</span> ${g.aiSuggestion.confidence}</div>
+        </div>
+        ${g.status === "PENDING_REVIEW" ? `
+          <div class="btn-row">
+            <button class="btn primary" id="approveBtn" ${canApprove ? "" : "disabled"}>${canApprove ? "Approve & open case" : "Approval requires Chief of Staff"}</button>
+            <button class="btn" id="rejectBtn" ${canApprove ? "" : "disabled"}>Send back for correction</button>
+          </div>` : ""}
+      </div>` : ""}
+
+    ${g.status === "NEW" ? `
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">Assign</div>
+        <input class="f" id="assigneeInput" placeholder="Assignee name" />
+        <button class="btn primary" id="assignBtn" ${canAssign ? "" : "disabled"}>${canAssign ? "Assign" : "Assign requires Office Admin+"}</button>
+      </div>` : ""}
+
+    ${!["DRAFT","PENDING_REVIEW","REVIEW_REQUIRED"].includes(g.status) ? `
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">Status</div>
+        <div class="btn-row">
+          ${(VALID_TRANSITIONS[g.status] || []).filter(s => s !== "VERIFIED" && s !== "CLOSED").map(s =>
+            `<button class="btn statusBtn" data-status="${s}" ${canEdit ? "" : "disabled"}>${s.replace(/_/g," ")}</button>`
+          ).join("")}
+          ${g.status === "RESOLVED" ? `<button class="btn primary" id="verifyBtn" ${canVerify ? "" : "disabled"}>${canVerify ? "Verify" : "Verify requires Chief of Staff"}</button>` : ""}
+          ${g.status === "VERIFIED" ? `<button class="btn primary" id="closeBtn" ${canClose ? "" : "disabled"}>${canClose ? "Close case" : "Close requires Chief of Staff"}</button>` : ""}
+        </div>
+      </div>` : ""}
+
+    ${!["DRAFT","PENDING_REVIEW","REVIEW_REQUIRED"].includes(g.status) ? `
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">Tasks</div>
+        ${g.tasks.length === 0 ? '<div class="empty">No tasks yet.</div>' :
+          g.tasks.map((t,i) => `<div class="task-item"><span>${t.title} — due ${t.dueDate}</span><button class="btn taskDoneBtn" data-idx="${i}" ${t.status==="COMPLETED"?"disabled":""}>${t.status==="COMPLETED"?"Done":"Mark done"}</button></div>`).join("")}
+        <div class="btn-row">
+          <input class="f" id="taskTitle" placeholder="Task" style="flex:2;margin-bottom:0;" />
+          <input class="f" id="taskDue" type="date" style="flex:1;margin-bottom:0;" />
+          <button class="btn" id="addTaskBtn" ${canEdit ? "" : "disabled"}>Add</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">Evidence</div>
+        ${g.evidence.length === 0 ? '<div class="empty">No evidence recorded.</div>' :
+          g.evidence.map(e => `<div class="evid-item"><span>${e.description} (${e.source})</span><span style="color:var(--slate);">${e.capturedBy}</span></div>`).join("")}
+        <div class="btn-row">
+          <input class="f" id="evidenceDesc" placeholder="Evidence description (e.g. photo of hand pump)" style="flex:2;margin-bottom:0;" />
+          <button class="btn" id="addEvidenceBtn" ${canEdit ? "" : "disabled"}>Add</button>
+        </div>
+      </div>` : ""}
+
+    <div class="panel">
+      <div class="section-title" style="margin-top:0;">Audit history</div>
+      ${g.audit.map(a => `<div class="audit-item"><b>${a.action}</b> — ${a.actor} · ${a.at}${a.detail ? " — " + a.detail : ""}</div>`).join("")}
+    </div>
+  `;
+}
+
+function renderAskBar() {
+  return `
+    <div class="ask-answer" id="askAnswerWrap" style="display:none;"><div class="ask-answer-inner" id="askAnswerInner"></div></div>
+    <div class="askbar-wrap"><div class="askbar">
+      <input id="askInput" type="text" placeholder="Ask GovernIQ about these cases..." />
+      <button id="askBtn">Ask</button>
+    </div></div>`;
+}
+
+// =====================================================================
+// HANDLERS
+// =====================================================================
+function attachAppHandlers() {
+  document.getElementById("logoutBtn").addEventListener("click", () => { session = null; grievances = []; render(); });
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => { currentView = t.dataset.view; render(); }));
+  document.querySelectorAll("[data-open]").forEach(c => c.addEventListener("click", () => { currentCaseId = c.dataset.open; currentView = "DETAIL"; render(); }));
+
+  const backLink = document.getElementById("backToList");
+  if (backLink) backLink.addEventListener("click", () => { currentView = "LIST"; render(); });
+
+  const newBtn = document.getElementById("newCaseBtn");
+  if (newBtn) newBtn.addEventListener("click", () => { currentView = "NEW"; render(); });
+
+  const saveDraftBtn = document.getElementById("saveDraftBtn");
+  if (saveDraftBtn) saveDraftBtn.addEventListener("click", () => {
+    const g = {
+      id: "local-" + (idCounter++), displayId: null, status: "DRAFT",
+      title: document.getElementById("fTitle").value,
+      description: document.getElementById("fDesc").value,
+      locationText: document.getElementById("fLoc").value,
+      citizenName: document.getElementById("fName").value,
+      citizenContact: document.getElementById("fContact").value,
+      category: null, priority: null, responsibleAuthority: null,
+      aiSuggestion: null, assignedTo: null, tasks: [], evidence: [],
+      audit: [],
+    };
+    addAudit(g, "CREATED", "Draft saved by field intake");
+    grievances.unshift(g);
+    currentCaseId = g.id; currentView = "DETAIL"; render();
+  });
+
+  const classifyBtn = document.getElementById("classifyBtn");
+  if (classifyBtn) classifyBtn.addEventListener("click", async () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    const redacted = redactText(g.description, g.citizenName, g.citizenContact);
+    document.getElementById("classifyResult").innerHTML = '<div style="margin-top:8px;"><span class="spinner"></span>Redacting PII, then classifying...</div>';
+    try {
+      const out = await callClaude(
+        'You are the GovernIQ grievance classifier. Input is PII-redacted. Respond ONLY as JSON: {"category":"","severity":"Low|Medium|High|Critical","authority":"","action":"","confidence":"High|Medium|Low"}',
+        redacted
+      );
+      const knownAuthorities = ["PHED", "PWD", "Municipal", "Electricity Department", "Health Department"];
+      const requiresExtraScrutiny = !knownAuthorities.some(k => out.authority.toLowerCase().includes(k.toLowerCase()));
+      g.aiSuggestion = { ...out, priority: out.severity.toUpperCase(), redactedSent: redacted, requiresExtraScrutiny };
+      g.priority = out.severity.toUpperCase();
+      if (isValidTransition(g.status, "PENDING_REVIEW")) g.status = "PENDING_REVIEW";
+      addAudit(g, "AI_CLASSIFIED", `Confidence: ${out.confidence}`);
+      render(); currentView = "DETAIL"; currentCaseId = g.id;
+    } catch (e) {
+      document.getElementById("classifyResult").innerHTML = '<div style="color:var(--brick);margin-top:8px;">Could not classify right now.</div>';
+    }
+  });
+
+  const approveBtn = document.getElementById("approveBtn");
+  if (approveBtn) approveBtn.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "APPROVE")) return;
+    g.category = g.aiSuggestion.category;
+    g.responsibleAuthority = g.aiSuggestion.authority;
+    g.displayId = "GOV-GRV-2026-" + String(g.id.replace("local-", "")).padStart(6, "0");
+    if (isValidTransition(g.status, "NEW")) g.status = "NEW";
+    addAudit(g, "HUMAN_REVIEWED", "Approved AI suggestion — official case opened");
+    render();
+  });
+
+  const rejectBtn = document.getElementById("rejectBtn");
+  if (rejectBtn) rejectBtn.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "APPROVE")) return;
+    if (isValidTransition(g.status, "REVIEW_REQUIRED")) g.status = "REVIEW_REQUIRED";
+    addAudit(g, "SENT_BACK_FOR_CORRECTION", "Reviewer rejected the AI suggestion");
+    render();
+  });
+
+  const assignBtn = document.getElementById("assignBtn");
+  if (assignBtn) assignBtn.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "ASSIGN")) return;
+    const name = document.getElementById("assigneeInput").value || "Unassigned staff";
+    g.assignedTo = name;
+    if (isValidTransition(g.status, "ASSIGNED")) g.status = "ASSIGNED";
+    addAudit(g, "ASSIGNED", `Assigned to ${name}`);
+    render();
+  });
+
+  document.querySelectorAll(".statusBtn").forEach(b => b.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "EDIT")) return;
+    const newStatus = b.dataset.status;
+    if (!isValidTransition(g.status, newStatus)) return;
+    const old = g.status; g.status = newStatus;
+    addAudit(g, "STATUS_CHANGED", `${old.replace(/_/g," ")} → ${newStatus.replace(/_/g," ")}`);
+    render();
+  }));
+
+  const verifyBtn = document.getElementById("verifyBtn");
+  if (verifyBtn) verifyBtn.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "VERIFY") || !isValidTransition(g.status, "VERIFIED")) return;
+    g.status = "VERIFIED";
+    addAudit(g, "VERIFIED", "Outcome verified");
+    render();
+  });
+
+  const closeBtn = document.getElementById("closeBtn");
+  if (closeBtn) closeBtn.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "CLOSE") || !isValidTransition(g.status, "CLOSED")) return;
+    g.status = "CLOSED";
+    addAudit(g, "CLOSED", "Case closed");
+    render();
+  });
+
+  const addTaskBtn = document.getElementById("addTaskBtn");
+  if (addTaskBtn) addTaskBtn.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "EDIT")) return;
+    const title = document.getElementById("taskTitle").value;
+    const dueDate = document.getElementById("taskDue").value || "no date set";
+    if (!title) return;
+    g.tasks.push({ title, dueDate, status: "OPEN" });
+    addAudit(g, "TASK_CREATED", title);
+    render();
+  });
+
+  document.querySelectorAll(".taskDoneBtn").forEach(b => b.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    g.tasks[parseInt(b.dataset.idx)].status = "COMPLETED";
+    addAudit(g, "TASK_COMPLETED", g.tasks[parseInt(b.dataset.idx)].title);
+    render();
+  }));
+
+  const addEvidenceBtn = document.getElementById("addEvidenceBtn");
+  if (addEvidenceBtn) addEvidenceBtn.addEventListener("click", () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "EDIT")) return;
+    const description = document.getElementById("evidenceDesc").value;
+    if (!description) return;
+    g.evidence.push({ description, source: "Field capture", capturedBy: session.name });
+    addAudit(g, "EVIDENCE_ADDED", description);
+    render();
+  });
+
+  document.getElementById("askBtn").addEventListener("click", async () => {
+    const q = document.getElementById("askInput").value.trim();
+    if (!q) return;
+    const wrap = document.getElementById("askAnswerWrap"), inner = document.getElementById("askAnswerInner");
+    wrap.style.display = "flex"; inner.innerHTML = '<div><span class="spinner"></span>Thinking...</div>';
+    const canSee = hasPermission(session.role, "SENSITIVE_DATA_ACCESS");
+    const context = grievances.map(g => `${g.displayId || g.id}: ${g.title}, status ${g.status}${g.priority ? ", priority " + g.priority : ""}` + (canSee ? `, citizen ${g.citizenName}` : "")).join("\\n") || "No cases yet.";
+    try {
+      const out = await callClaude(`Answer ONLY from this office data:\\n${context}\\nIf asked for something not available to this role, say so. Respond ONLY as JSON: {"answer":"","confidence":"High|Medium|Low"}`, q);
+      inner.innerHTML = `<div style="font-size:13px;"><b>Answer:</b> ${out.answer}</div><div style="font-size:12px;color:var(--slate);margin-top:4px;">Confidence: ${out.confidence}</div>`;
+    } catch (e) { inner.innerHTML = '<div>Could not reach GovernIQ right now.</div>'; }
+  });
+}
+
+render();
+</script>

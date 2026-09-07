@@ -112,11 +112,39 @@
 // backend" means concretely: nothing below was written for the browser
 // specifically. Moving it to a server changes WHERE it runs, not WHAT it does.
 // =====================================================================
+const ROLE_LABELS = {
+  REPRESENTATIVE_MP: "MP",
+  REPRESENTATIVE_MLA: "MLA",
+  REPRESENTATIVE_MAYOR: "Mayor / Corporator",
+  REPRESENTATIVE_SARPANCH: "Sarpanch / Panchayat Head",
+  REPRESENTATIVE_OTHER: "Representative (Other)",
+  CHIEF_OF_STAFF: "Private Secretary",
+  OFFICE_ADMIN: "Office Superintendent",
+  CONSTITUENCY_TEAM: "Constituency Team",
+  FIELD_TEAM: "Field Team",
+  RESEARCH_TEAM: "Policy & Research",
+};
+
+// MP / MLA / Mayor-Corporator / Sarpanch are NOT different permission
+// levels — they're the same role (the elected official who owns the
+// office: approves/verifies/closes, deliberately does not do day-to-day
+// intake) at different tiers of government. Defined once as
+// REPRESENTATIVE_PERMISSIONS and spread into each labeled variant below,
+// so the five can never drift out of sync with each other the way five
+// independently hand-typed copies eventually would.
+const REPRESENTATIVE_PERMISSIONS = { VIEW: true, CREATE: false, EDIT: false, ASSIGN: false, APPROVE: true, VERIFY: true, CLOSE: true, SENSITIVE_DATA_ACCESS: true, scope: "ALL" };
+
 const PERMISSIONS = {
-  CHIEF_OF_STAFF: { VIEW: true, CREATE: true, EDIT: true, ASSIGN: true, APPROVE: true, VERIFY: true, CLOSE: true, SENSITIVE_DATA_ACCESS: true, scope: "ALL" },
-  OFFICE_ADMIN:   { VIEW: true, CREATE: true, EDIT: true, ASSIGN: true, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: true, scope: "ALL" },
-  FIELD_TEAM:     { VIEW: true, CREATE: true, EDIT: true, ASSIGN: false, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: true, scope: "OWN_ASSIGNED" },
-  RESEARCH_TEAM:  { VIEW: true, CREATE: false, EDIT: false, ASSIGN: false, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: false, scope: "ALL" },
+  REPRESENTATIVE_MP:        { ...REPRESENTATIVE_PERMISSIONS },
+  REPRESENTATIVE_MLA:       { ...REPRESENTATIVE_PERMISSIONS },
+  REPRESENTATIVE_MAYOR:     { ...REPRESENTATIVE_PERMISSIONS },
+  REPRESENTATIVE_SARPANCH:  { ...REPRESENTATIVE_PERMISSIONS },
+  REPRESENTATIVE_OTHER:     { ...REPRESENTATIVE_PERMISSIONS },
+  CHIEF_OF_STAFF:     { VIEW: true, CREATE: true,  EDIT: true,  ASSIGN: true,  APPROVE: true,  VERIFY: true,  CLOSE: true,  SENSITIVE_DATA_ACCESS: true,  scope: "ALL" },
+  OFFICE_ADMIN:       { VIEW: true, CREATE: true,  EDIT: true,  ASSIGN: true,  APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: true,  scope: "ALL" },
+  CONSTITUENCY_TEAM:  { VIEW: true, CREATE: true,  EDIT: true,  ASSIGN: true,  APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: true,  scope: "ALL" },
+  FIELD_TEAM:         { VIEW: true, CREATE: true,  EDIT: true,  ASSIGN: false, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: true,  scope: "OWN_ASSIGNED" },
+  RESEARCH_TEAM:      { VIEW: true, CREATE: false, EDIT: false, ASSIGN: false, APPROVE: false, VERIFY: false, CLOSE: false, SENSITIVE_DATA_ACCESS: false, scope: "ALL" },
 };
 function hasPermission(role, action) {
   const perms = PERMISSIONS[role];
@@ -186,6 +214,8 @@ function render() {
 }
 
 function renderLogin() {
+  const roleOptions = Object.entries(ROLE_LABELS)
+    .map(([key, label]) => `<option value="${key}">${label}</option>`).join("");
   return `
     <div class="login-wrap"><div class="login-box">
       <img src="logo.png" alt="GovernIQ" style="width:64px;height:64px;border-radius:12px;display:block;margin:0 auto 12px;" />
@@ -195,10 +225,7 @@ function renderLogin() {
       <input class="f" id="loginName" value="Priya Sharma" />
       <label>Role</label>
       <select class="f" id="loginRole">
-        <option value="CHIEF_OF_STAFF">Chief of Staff</option>
-        <option value="OFFICE_ADMIN">Office Admin</option>
-        <option value="FIELD_TEAM">Field Team</option>
-        <option value="RESEARCH_TEAM">Research Team</option>
+        ${roleOptions}
       </select>
       <button id="loginBtn">Log in</button>
       <div class="login-note">This demo simulates the login step. In production, tenant_id/office_id/role come from a verified server-side session — never from a value the browser sets itself.</div>
@@ -258,7 +285,7 @@ function renderApp() {
     <div class="topbar">
       <div class="who" style="display:flex;align-items:center;gap:8px;">
         <img src="logo.png" alt="GovernIQ" style="width:26px;height:26px;border-radius:6px;" />
-        Signed in as <b>${session.name}</b> (${session.role.replace(/_/g, " ")})
+        Signed in as <b>${session.name}</b> (${ROLE_LABELS[session.role] || session.role.replace(/_/g, " ")})
       </div>
       <button id="logoutBtn">Log out</button>
     </div>

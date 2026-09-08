@@ -8,6 +8,7 @@
 
 import { getVerifiedUser } from "../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../_shared/permissions.js";
+import { recordAudit } from "../_shared/grievance-data.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -73,9 +74,13 @@ export async function onRequestPost(context) {
   // Real, persisted audit trail entry — previously synthesized client-side
   // as a fake "Loaded from D1" line on every page load; now an actual row
   // that survives refreshes and different sessions.
-  await env.DB.prepare(
-    `INSERT INTO grievance_audit (id, grievance_id, action, detail, actor_email, actor_role) VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(crypto.randomUUID(), id, "CREATED", "Draft saved by field intake — persisted to database", email, role).run();
+  await recordAudit(env, {
+    grievanceId: id,
+    action: "CREATED",
+    detail: "Draft saved by field intake — persisted to database",
+    actorEmail: email,
+    actorRole: role,
+  });
 
   return Response.json({ id, status: "DRAFT" });
 }

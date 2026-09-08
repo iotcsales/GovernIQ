@@ -2,9 +2,14 @@
 // This runs on Cloudflare's servers, never in the browser. The API key
 // lives only in env.ANTHROPIC_API_KEY (a Cloudflare secret) — it is never
 // part of any response sent back to the client.
+//
+// The result of classification is now persisted to D1 (ai_suggestion column
+// + status -> PENDING_REVIEW), not just held in browser memory — the
+// approve step reads this stored value rather than trusting the browser.
 
 import { getVerifiedUser } from "../_shared/get-verified-user.js";
 import { hasPermission } from "../_shared/permissions.js";
+import { loadGrievance, loadGrievanceWithAudit, recordAudit } from "../_shared/grievance-data.js";
 
 function redactText(text, citizenName, citizenContact) {
   if (!text) return text;
@@ -19,14 +24,12 @@ function redactText(text, citizenName, citizenContact) {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  // Real, server-verified role gate — classification is a step in creating
-  // an official case, so it requires the same CREATE permission as actually
-  // saving a grievance.
   const auth = await getVerifiedUser(request, env);
   if (!auth.ok) {
     return Response.json({ error: auth.error }, { status: auth.status });
   }
-  if (!hasPermission(auth.user.role, "CREATE")) {
+  const { role, email } = auth.user;
+  if (!hasPermission(role, "CREATE")) {
     return Response.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
@@ -35,10 +38,18 @@ export async function onRequestPost(context) {
   }
 
   const body = await request.json();
-  const { title, description, locationText, citizenName, citizenContact } = body;
+  const { id, title, description, locationText, citizenName, citizenContact } = body;
 
-  if (!title || !description) {
-    return Response.json({ error: "VALIDATION_ERROR", message: "title and description are required" }, { status: 400 });
+  if (!id || !title || !description) {
+    return Response.json({ error: "VALIDATION_ERROR", message: "id, title and description are required" }, { status: 400 });
+  }
+
+  const existing = await loadGrievance(env, id);
+  if (!existing) {
+    return Response.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+  if (existing.status !== "DRAFT") {
+    return Response.json({ error: "INVALID_TRANSITION", message: "Only DRAFT cases can be classified" }, { status: 409 });
   }
 
   // PII redaction — server-side, before anything leaves toward the provider.
@@ -91,5 +102,20 @@ export async function onRequestPost(context) {
     return Response.json({ error: "OUTPUT_VALIDATION_ERROR", message: "PII leak detected in output" }, { status: 502 });
   }
 
-  return Response.json({ ...parsed, redactedSent: minimizedContent });
+  const suggestionToStore = { ...parsed, redactedSent: minimizedContent };
+
+  await env.DB.prepare(
+    `UPDATE grievances SET status='PENDING_REVIEW', priority=?, ai_suggestion=?, updated_at=datetime('now') WHERE id=?`
+  ).bind((parsed.severity || "").toUpperCase(), JSON.stringify(suggestionToStore), id).run();
+
+  await recordAudit(env, {
+    grievanceId: id,
+    action: "AI_CLASSIFIED",
+    detail: `Confidence: ${parsed.confidence} — classified server-side`,
+    actorEmail: email,
+    actorRole: role,
+  });
+
+  const result = await loadGrievanceWithAudit(env, id, hasPermission(role, "SENSITIVE_DATA_ACCESS"));
+  return Response.json(result);
 }

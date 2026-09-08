@@ -272,6 +272,12 @@ function applyServerGrievance(g, data) {
   g.citizenName = data.citizen_name;
   g.citizenContact = data.citizen_contact;
   g.audit = data.audit || g.audit;
+  if (data.ai_suggestion) {
+    const suggestion = typeof data.ai_suggestion === "string" ? JSON.parse(data.ai_suggestion) : data.ai_suggestion;
+    const knownAuthorities = ["PHED", "PWD", "Municipal", "Electricity Department", "Health Department"];
+    const requiresExtraScrutiny = !knownAuthorities.some(k => (suggestion.authority || "").toLowerCase().includes(k.toLowerCase()));
+    g.aiSuggestion = { ...suggestion, priority: (suggestion.severity || "").toUpperCase(), requiresExtraScrutiny };
+  }
 }
 
 async function loadGrievances() {
@@ -594,18 +600,13 @@ function attachAppHandlers() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: g.title, description: g.description, locationText: g.locationText,
+          id: g.id, title: g.title, description: g.description, locationText: g.locationText,
           citizenName: g.citizenName, citizenContact: g.citizenContact,
         }),
       });
       const out = await res.json();
       if (out.error) throw new Error(out.error);
-      const knownAuthorities = ["PHED", "PWD", "Municipal", "Electricity Department", "Health Department"];
-      const requiresExtraScrutiny = !knownAuthorities.some(k => out.authority.toLowerCase().includes(k.toLowerCase()));
-      g.aiSuggestion = { ...out, priority: out.severity.toUpperCase(), requiresExtraScrutiny };
-      g.priority = out.severity.toUpperCase();
-      if (isValidTransition(g.status, "PENDING_REVIEW")) g.status = "PENDING_REVIEW";
-      addAudit(g, "AI_CLASSIFIED", `Confidence: ${out.confidence} — classified server-side`);
+      applyServerGrievance(g, out);
       render(); currentView = "DETAIL"; currentCaseId = g.id;
     } catch (e) {
       document.getElementById("classifyResult").innerHTML = '<div style="color:var(--brick);margin-top:8px;">Could not classify right now.</div>';
@@ -621,7 +622,7 @@ function attachAppHandlers() {
       const res = await fetch(`/api/grievances/${g.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "APPROVE", category: g.aiSuggestion.category, responsibleAuthority: g.aiSuggestion.authority }),
+        body: JSON.stringify({ action: "APPROVE" }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);

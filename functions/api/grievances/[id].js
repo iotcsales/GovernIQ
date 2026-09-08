@@ -1,14 +1,15 @@
 // functions/api/grievances/[id].js
 //
-// Single-grievance detail (with a REAL audit trail, not the fake
-// "Loaded from D1" line the browser used to synthesize) and the
-// status-workflow actions: approve, reject, assign, status change,
-// verify, close. Every action is permission-checked against the
-// caller's server-verified role and persists to D1 — nothing here is
-// held only in browser memory anymore.
+// Single-grievance detail (with a REAL audit trail) and the status-workflow
+// actions: approve, reject, assign, status change, verify, close. Every
+// action is permission-checked against the caller's server-verified role
+// and persists to D1. APPROVE reads the AI suggestion that classification
+// already stored server-side (ai_suggestion column) rather than trusting
+// category/authority values sent by the browser at approval time.
 
 import { getVerifiedUser } from "../../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../../_shared/permissions.js";
+import { loadGrievance, loadGrievanceWithAudit, recordAudit } from "../../_shared/grievance-data.js";
 
 const VALID_TRANSITIONS = {
   DRAFT: ["PENDING_REVIEW"], PENDING_REVIEW: ["NEW", "REVIEW_REQUIRED"], REVIEW_REQUIRED: ["PENDING_REVIEW"],
@@ -20,34 +21,6 @@ const VALID_TRANSITIONS = {
 function isValidTransition(from, to) {
   const allowed = VALID_TRANSITIONS[from];
   return Array.isArray(allowed) && allowed.includes(to);
-}
-
-function sanitize(row, canSeeSensitive) {
-  if (canSeeSensitive) return row;
-  const { citizen_name, citizen_contact, ...rest } = row;
-  return rest;
-}
-
-async function loadGrievance(env, id) {
-  return env.DB.prepare("SELECT * FROM grievances WHERE id = ?").bind(id).first();
-}
-
-async function loadAudit(env, id) {
-  const { results } = await env.DB.prepare(
-    "SELECT action, detail, actor_email, actor_role, created_at FROM grievance_audit WHERE grievance_id = ? ORDER BY created_at ASC"
-  ).bind(id).all();
-  return results.map((r) => ({
-    action: r.action,
-    actor: `${r.actor_role} · ${r.actor_email}`,
-    at: r.created_at,
-    detail: r.detail || "",
-  }));
-}
-
-async function recordAudit(env, { grievanceId, action, detail, actorEmail, actorRole }) {
-  await env.DB.prepare(
-    `INSERT INTO grievance_audit (id, grievance_id, action, detail, actor_email, actor_role) VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(crypto.randomUUID(), grievanceId, action, detail || null, actorEmail, actorRole).run();
 }
 
 export async function onRequestGet(context) {
@@ -70,8 +43,8 @@ export async function onRequestGet(context) {
   }
 
   const canSeeSensitive = hasPermission(role, "SENSITIVE_DATA_ACCESS");
-  const audit = await loadAudit(env, params.id);
-  return Response.json({ ...sanitize(row, canSeeSensitive), audit });
+  const result = await loadGrievanceWithAudit(env, params.id, canSeeSensitive);
+  return Response.json(result);
 }
 
 export async function onRequestPatch(context) {
@@ -97,12 +70,19 @@ export async function onRequestPatch(context) {
   if (action === "APPROVE") {
     if (!hasPermission(role, "APPROVE")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
     if (!isValidTransition(row.status, "NEW")) return Response.json({ error: "INVALID_TRANSITION" }, { status: 409 });
+
+    // The AI suggestion is read from what classification already persisted
+    // server-side — never from anything the browser sends at approval time.
+    let suggestion = null;
+    try { suggestion = row.ai_suggestion ? JSON.parse(row.ai_suggestion) : null; } catch (e) { suggestion = null; }
+    if (!suggestion) {
+      return Response.json({ error: "NO_AI_SUGGESTION", message: "Classify this case before approving" }, { status: 409 });
+    }
+
     const displayId = "GOV-GRV-2026-" + id.replace(/-/g, "").slice(0, 6).toUpperCase();
-    const category = body.category || row.category;
-    const authority = body.responsibleAuthority || row.responsible_authority;
     await env.DB.prepare(
       `UPDATE grievances SET status='NEW', category=?, responsible_authority=?, display_id=?, updated_at=datetime('now') WHERE id=?`
-    ).bind(category, authority, displayId, id).run();
+    ).bind(suggestion.category, suggestion.authority, displayId, id).run();
     await recordAudit(env, { grievanceId: id, action: "HUMAN_REVIEWED", detail: "Approved AI suggestion — official case opened", ...actorMeta });
 
   } else if (action === "REJECT") {
@@ -144,8 +124,7 @@ export async function onRequestPatch(context) {
     return Response.json({ error: "UNKNOWN_ACTION" }, { status: 400 });
   }
 
-  const updatedRow = await loadGrievance(env, id);
   const canSeeSensitive = hasPermission(role, "SENSITIVE_DATA_ACCESS");
-  const audit = await loadAudit(env, id);
-  return Response.json({ ...sanitize(updatedRow, canSeeSensitive), audit });
+  const result = await loadGrievanceWithAudit(env, id, canSeeSensitive);
+  return Response.json(result);
 }

@@ -182,6 +182,8 @@ function isValidTransition(from, to) {
 // of this sandbox, not a design decision — stated plainly, not hidden.
 // =====================================================================
 let session = null;
+let authError = null;
+const ACCESS_TEAM_DOMAIN = "dark-mode-25a0.cloudflareaccess.com";
 let grievances = [];
 let currentView = "MY_DAY";
 let currentCaseId = null;
@@ -208,29 +210,53 @@ function el(html) { const d = document.createElement("div"); d.innerHTML = html;
 
 function render() {
   const root = document.getElementById("root");
-  if (!session) { root.innerHTML = renderLogin(); attachLoginHandlers(); return; }
+  if (authError) { root.innerHTML = renderAccessError(authError); return; }
+  if (!session) { root.innerHTML = renderLoading(); return; }
   root.innerHTML = renderApp();
   attachAppHandlers();
 }
 
-function renderLogin() {
-  const roleOptions = Object.entries(ROLE_LABELS)
-    .map(([key, label]) => `<option value="${key}">${label}</option>`).join("");
+function renderLoading() {
+  return `
+    <div class="login-wrap"><div class="login-box" style="text-align:center;">
+      <img src="logo.png" alt="GovernIQ" style="width:64px;height:64px;border-radius:12px;display:block;margin:0 auto 12px;" />
+      <h1 class="serif">GovernIQ</h1>
+      <p>Verifying your session…</p>
+    </div></div>`;
+}
+
+function renderAccessError(message) {
+  const friendly = message === "User not provisioned"
+    ? "Your account is signed in but not yet set up for GovernIQ. Contact your administrator to have your email added."
+    : "We couldn't verify your access. Try refreshing the page, or contact your administrator if this continues.";
   return `
     <div class="login-wrap"><div class="login-box">
       <img src="logo.png" alt="GovernIQ" style="width:64px;height:64px;border-radius:12px;display:block;margin:0 auto 12px;" />
       <h1 class="serif" style="text-align:center;">GovernIQ</h1>
-      <p>Sign in to the office workspace.</p>
-      <label>Your name</label>
-      <input class="f" id="loginName" value="Priya Sharma" />
-      <label>Role</label>
-      <select class="f" id="loginRole">
-        ${roleOptions}
-      </select>
-      <button id="loginBtn">Log in</button>
-      <div class="login-note">This demo simulates the login step. In production, tenant_id/office_id/role come from a verified server-side session — never from a value the browser sets itself.</div>
+      <p style="text-align:center;">${friendly}</p>
+      <div class="login-note">Signed in via Cloudflare Access. Your role is assigned by an administrator and is not selectable here.</div>
       <div class="footer-credit">Built by Team IOTC</div>
     </div></div>`;
+}
+
+async function init() {
+  render();
+  try {
+    const res = await fetch("/api/me");
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      authError = body.error || `HTTP ${res.status}`;
+      render();
+      return;
+    }
+    session = { name: body.name, role: body.role, email: body.email, tenantId: body.tenant_id };
+    currentView = "MY_DAY";
+    await loadGrievances();
+    render();
+  } catch (e) {
+    authError = "Could not reach GovernIQ to verify your session. Please refresh the page.";
+    render();
+  }
 }
 
 async function loadGrievances() {
@@ -257,17 +283,6 @@ async function loadGrievances() {
   } catch (e) {
     grievances = [];
   }
-}
-
-function attachLoginHandlers() {
-  document.getElementById("loginBtn").addEventListener("click", async () => {
-    const name = document.getElementById("loginName").value || "Staff Member";
-    const role = document.getElementById("loginRole").value;
-    session = { name, role, userId: name.toLowerCase().replace(/\s+/g, "-"), tenantId: "pilot-office-1" };
-    currentView = "MY_DAY";
-    await loadGrievances();
-    render();
-  });
 }
 
 function tagClass(status) {
@@ -487,7 +502,12 @@ function renderAskBar() {
 // HANDLERS
 // =====================================================================
 function attachAppHandlers() {
-  document.getElementById("logoutBtn").addEventListener("click", () => { session = null; grievances = []; render(); });
+  document.getElementById("logoutBtn").addEventListener("click", () => {
+    // Real sign-out now happens at Cloudflare Access, not in this page's
+    // memory — clearing local `session` alone would leave the Access
+    // cookie valid and just reload back into the same identity.
+    window.location.href = `https://${ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout`;
+  });
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => { currentView = t.dataset.view; render(); }));
   document.querySelectorAll("[data-open]").forEach(c => c.addEventListener("click", () => { currentCaseId = c.dataset.open; currentView = "DETAIL"; render(); }));
 
@@ -505,7 +525,8 @@ function attachAppHandlers() {
       locationText: document.getElementById("fLoc").value,
       citizenName: document.getElementById("fName").value,
       citizenContact: document.getElementById("fContact").value,
-      createdBy: session.name,
+      // createdBy is no longer sent — the server derives it from the
+      // verified Access session instead of trusting a client-supplied value.
     };
     const saveBtnEl = document.getElementById("saveDraftBtn");
     saveBtnEl.disabled = true;
@@ -657,12 +678,13 @@ function attachAppHandlers() {
     if (!q) return;
     const wrap = document.getElementById("askAnswerWrap"), inner = document.getElementById("askAnswerInner");
     wrap.style.display = "flex"; inner.innerHTML = '<div><span class="spinner"></span>Thinking...</div>';
-    const canSee = hasPermission(session.role, "SENSITIVE_DATA_ACCESS");
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, canSeeSensitive: canSee }),
+        // canSeeSensitive is no longer sent from the browser — the server
+        // derives it from the caller's verified role instead.
+        body: JSON.stringify({ question: q }),
       });
       const out = await res.json();
       if (out.error) throw new Error(out.error);
@@ -671,5 +693,5 @@ function attachAppHandlers() {
   });
 }
 
-render();
+init();
 </script>

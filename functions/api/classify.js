@@ -3,6 +3,9 @@
 // lives only in env.ANTHROPIC_API_KEY (a Cloudflare secret) — it is never
 // part of any response sent back to the client.
 
+import { getVerifiedUser } from "../_shared/get-verified-user.js";
+import { hasPermission } from "../_shared/permissions.js";
+
 function redactText(text, citizenName, citizenContact) {
   if (!text) return text;
   let working = text;
@@ -15,6 +18,17 @@ function redactText(text, citizenName, citizenContact) {
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+
+  // Real, server-verified role gate — classification is a step in creating
+  // an official case, so it requires the same CREATE permission as actually
+  // saving a grievance.
+  const auth = await getVerifiedUser(request, env);
+  if (!auth.ok) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+  if (!hasPermission(auth.user.role, "CREATE")) {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
 
   if (!env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "AI_PROVIDER_NOT_CONFIGURED" }, { status: 503 });

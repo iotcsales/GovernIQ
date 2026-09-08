@@ -34,7 +34,7 @@
   .topbar .who b{color:#fff;}
   .topbar button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px 11px;border-radius:6px;font-size:12px;}
   .tabs{display:flex;background:var(--indigo-2);}
-  .tab{flex:1;text-align:center;padding:10px;font-size:13px;color:#AEB6D2;border-bottom:2px solid transparent;}
+  .tab{flex:1;text-align:center;padding:10px;font-size:13px;color:#AEB6D2;border-bottom:2px solid transparent;cursor:pointer;}
   .tab.active{color:#fff;border-bottom-color:var(--brass-2);font-weight:600;}
 
   .main{max-width:720px;margin:0 auto;padding:16px;padding-bottom:40px;}
@@ -471,18 +471,27 @@ function renderDetail() {
         <button class="btn primary" id="assignBtn" ${canAssign ? "" : "disabled"}>${canAssign ? "Assign" : "Assign requires Office Admin+"}</button>
       </div>` : ""}
 
-    ${!["DRAFT","PENDING_REVIEW","REVIEW_REQUIRED"].includes(g.status) ? `
-      <div class="panel">
+    ${(() => {
+      // ASSIGNED is excluded here — it has its own dedicated Assign panel
+      // above, so listing it again in the generic status buttons duplicated
+      // the same action. If nothing else is available for this status, the
+      // whole panel is skipped rather than showing an empty box.
+      const statusOptions = (VALID_TRANSITIONS[g.status] || []).filter(s => s !== "VERIFIED" && s !== "CLOSED" && s !== "ASSIGNED");
+      const showVerify = g.status === "RESOLVED";
+      const showClose = g.status === "VERIFIED";
+      if (statusOptions.length === 0 && !showVerify && !showClose) return "";
+      return `
+    <div class="panel">
         <div class="section-title" style="margin-top:0;">Status</div>
         <div class="btn-row">
-          ${(VALID_TRANSITIONS[g.status] || []).filter(s => s !== "VERIFIED" && s !== "CLOSED").map(s =>
+          ${statusOptions.map(s =>
             `<button class="btn statusBtn" data-status="${s}" ${canEdit ? "" : "disabled"}>${s.replace(/_/g," ")}</button>`
           ).join("")}
-          ${g.status === "RESOLVED" ? `<button class="btn primary" id="verifyBtn" ${canVerify ? "" : "disabled"}>${canVerify ? "Verify" : "Verify requires Chief of Staff"}</button>` : ""}
-          ${g.status === "VERIFIED" ? `<button class="btn primary" id="closeBtn" ${canClose ? "" : "disabled"}>${canClose ? "Close case" : "Close requires Chief of Staff"}</button>` : ""}
+          ${showVerify ? `<button class="btn primary" id="verifyBtn" ${canVerify ? "" : "disabled"}>${canVerify ? "Verify" : "Verify requires Chief of Staff"}</button>` : ""}
+          ${showClose ? `<button class="btn primary" id="closeBtn" ${canClose ? "" : "disabled"}>${canClose ? "Close case" : "Close requires Chief of Staff"}</button>` : ""}
         </div>
-      </div>` : ""}
-
+      </div>`;
+    })()}
     ${!["DRAFT","PENDING_REVIEW","REVIEW_REQUIRED"].includes(g.status) ? `
       <div class="panel">
         <div class="section-title" style="margin-top:0;">Tasks</div>

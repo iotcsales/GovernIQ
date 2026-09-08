@@ -32,10 +32,26 @@ export async function onRequestGet(context) {
     ? results.filter((g) => g.assigned_to === email)
     : results;
 
+  // Batch-fetch tasks for every visible case in one query, so "My Day"'s
+  // overdue-task count stays accurate without an N+1 query per case.
+  let tasksByGrievance = {};
+  if (rows.length > 0) {
+    const ids = rows.map((r) => r.id);
+    const placeholders = ids.map(() => "?").join(",");
+    const { results: taskRows } = await env.DB.prepare(
+      `SELECT grievance_id, id, title, due_date, status FROM grievance_tasks WHERE grievance_id IN (${placeholders})`
+    ).bind(...ids).all();
+    for (const t of taskRows) {
+      const list = tasksByGrievance[t.grievance_id] || (tasksByGrievance[t.grievance_id] = []);
+      list.push({ id: t.id, title: t.title, dueDate: t.due_date || "no date set", status: t.status });
+    }
+  }
+
   const canSeeSensitive = hasPermission(role, "SENSITIVE_DATA_ACCESS");
   const sanitized = rows.map((g) => {
-    if (canSeeSensitive) return g;
-    const { citizen_name, citizen_contact, ...rest } = g;
+    const withTasks = { ...g, tasks: tasksByGrievance[g.id] || [] };
+    if (canSeeSensitive) return withTasks;
+    const { citizen_name, citizen_contact, ...rest } = withTasks;
     return rest;
   });
 

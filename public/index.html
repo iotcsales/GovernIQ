@@ -272,6 +272,8 @@ function applyServerGrievance(g, data) {
   g.citizenName = data.citizen_name;
   g.citizenContact = data.citizen_contact;
   g.audit = data.audit || g.audit;
+  g.tasks = data.tasks || g.tasks || [];
+  g.evidence = data.evidence || g.evidence || [];
   if (data.ai_suggestion) {
     const suggestion = typeof data.ai_suggestion === "string" ? JSON.parse(data.ai_suggestion) : data.ai_suggestion;
     const knownAuthorities = ["PHED", "PWD", "Municipal", "Electricity Department", "Health Department"];
@@ -297,8 +299,8 @@ async function loadGrievances() {
       priority: r.priority,
       responsibleAuthority: r.responsible_authority,
       assignedTo: r.assigned_to,
-      aiSuggestion: null,       // not yet persisted — see note below
-      tasks: [], evidence: [],  // not yet persisted — added in a later step
+      aiSuggestion: null,       // populated when a case is opened (detail fetch), not in the list
+      tasks: r.tasks || [], evidence: [],  // evidence populated on detail fetch; tasks come with the list for the My Day overdue count
       audit: [{ action: "CREATED", actor: "database", at: r.created_at, detail: "Loaded from D1" }],
     }));
   } catch (e) {
@@ -485,7 +487,7 @@ function renderDetail() {
       <div class="panel">
         <div class="section-title" style="margin-top:0;">Tasks</div>
         ${g.tasks.length === 0 ? '<div class="empty">No tasks yet.</div>' :
-          g.tasks.map((t,i) => `<div class="task-item"><span>${t.title} — due ${t.dueDate}</span><button class="btn taskDoneBtn" data-idx="${i}" ${t.status==="COMPLETED"?"disabled":""}>${t.status==="COMPLETED"?"Done":"Mark done"}</button></div>`).join("")}
+          g.tasks.map((t,i) => `<div class="task-item"><span>${t.title} — due ${t.dueDate}</span><button class="btn taskDoneBtn" data-idx="${i}" ${(t.status==="COMPLETED"||!canEdit)?"disabled":""}>${t.status==="COMPLETED"?"Done":"Mark done"}</button></div>`).join("")}
         <div class="btn-row">
           <input class="f" id="taskTitle" placeholder="Task" style="flex:2;margin-bottom:0;" />
           <input class="f" id="taskDue" type="date" style="flex:1;margin-bottom:0;" />
@@ -732,33 +734,65 @@ function attachAppHandlers() {
   });
 
   const addTaskBtn = document.getElementById("addTaskBtn");
-  if (addTaskBtn) addTaskBtn.addEventListener("click", () => {
+  if (addTaskBtn) addTaskBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "EDIT")) return;
     const title = document.getElementById("taskTitle").value;
-    const dueDate = document.getElementById("taskDue").value || "no date set";
+    const dueDate = document.getElementById("taskDue").value || null;
     if (!title) return;
-    g.tasks.push({ title, dueDate, status: "OPEN" });
-    addAudit(g, "TASK_CREATED", title);
-    render();
+    try {
+      const res = await fetch(`/api/grievances/${g.id}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, dueDate }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not add task — check your connection and try again.");
+    }
   });
 
-  document.querySelectorAll(".taskDoneBtn").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".taskDoneBtn").forEach(b => b.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
-    g.tasks[parseInt(b.dataset.idx)].status = "COMPLETED";
-    addAudit(g, "TASK_COMPLETED", g.tasks[parseInt(b.dataset.idx)].title);
-    render();
+    if (!hasPermission(session.role, "EDIT")) return;
+    const task = g.tasks[parseInt(b.dataset.idx)];
+    try {
+      const res = await fetch(`/api/grievances/${g.id}/tasks`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task.id, action: "COMPLETE" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not mark task done — check your connection and try again.");
+    }
   }));
 
   const addEvidenceBtn = document.getElementById("addEvidenceBtn");
-  if (addEvidenceBtn) addEvidenceBtn.addEventListener("click", () => {
+  if (addEvidenceBtn) addEvidenceBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "EDIT")) return;
     const description = document.getElementById("evidenceDesc").value;
     if (!description) return;
-    g.evidence.push({ description, source: "Field capture", capturedBy: session.name });
-    addAudit(g, "EVIDENCE_ADDED", description);
-    render();
+    try {
+      const res = await fetch(`/api/grievances/${g.id}/evidence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not add evidence — check your connection and try again.");
+    }
   });
 
   document.getElementById("askBtn").addEventListener("click", async () => {

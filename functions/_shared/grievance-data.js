@@ -34,9 +34,27 @@ export async function recordAudit(env, { grievanceId, action, detail, actorEmail
   ).bind(crypto.randomUUID(), grievanceId, action, detail || null, actorEmail, actorRole).run();
 }
 
+export async function loadTasks(env, id) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, title, due_date, status FROM grievance_tasks WHERE grievance_id = ? ORDER BY created_at ASC"
+  ).bind(id).all();
+  return results.map((t) => ({ id: t.id, title: t.title, dueDate: t.due_date || "no date set", status: t.status }));
+}
+
+export async function loadEvidence(env, id) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, description, source, captured_by FROM grievance_evidence WHERE grievance_id = ? ORDER BY created_at ASC"
+  ).bind(id).all();
+  return results.map((e) => ({ id: e.id, description: e.description, source: e.source, capturedBy: e.captured_by }));
+}
+
 export async function loadGrievanceWithAudit(env, id, canSeeSensitive) {
   const row = await loadGrievance(env, id);
   if (!row) return null;
-  const audit = await loadAudit(env, id);
-  return { ...sanitizeGrievance(row, canSeeSensitive), audit };
+  const [audit, tasks, evidence] = await Promise.all([
+    loadAudit(env, id),
+    loadTasks(env, id),
+    loadEvidence(env, id),
+  ]);
+  return { ...sanitizeGrievance(row, canSeeSensitive), audit, tasks, evidence };
 }

@@ -259,6 +259,21 @@ async function init() {
   }
 }
 
+function applyServerGrievance(g, data) {
+  // Maps a server response (list row shape, snake_case) onto the local
+  // grievance object (camelCase) — used both when opening a case and after
+  // every workflow action, so the UI always reflects what's actually in D1.
+  g.status = data.status;
+  g.category = data.category;
+  g.priority = data.priority;
+  g.responsibleAuthority = data.responsible_authority;
+  g.assignedTo = data.assigned_to;
+  g.displayId = data.display_id;
+  g.citizenName = data.citizen_name;
+  g.citizenContact = data.citizen_contact;
+  g.audit = data.audit || g.audit;
+}
+
 async function loadGrievances() {
   try {
     const res = await fetch("/api/grievances");
@@ -509,7 +524,21 @@ function attachAppHandlers() {
     window.location.href = `https://${ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout`;
   });
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => { currentView = t.dataset.view; render(); }));
-  document.querySelectorAll("[data-open]").forEach(c => c.addEventListener("click", () => { currentCaseId = c.dataset.open; currentView = "DETAIL"; render(); }));
+  document.querySelectorAll("[data-open]").forEach(c => c.addEventListener("click", async () => {
+    currentCaseId = c.dataset.open; currentView = "DETAIL"; render();
+    // Fetch the real, current state (including the actual audit trail) from
+    // D1 rather than trusting whatever this browser tab happened to have in
+    // memory — another user or session may have changed this case since.
+    try {
+      const res = await fetch(`/api/grievances/${currentCaseId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const g = grievances.find(x => x.id === currentCaseId);
+      if (g) { applyServerGrievance(g, data); render(); }
+    } catch (e) {
+      // Keep showing whatever was cached locally; detail view still usable.
+    }
+  }));
 
   const backLink = document.getElementById("backToList");
   if (backLink) backLink.addEventListener("click", () => { currentView = "LIST"; render(); });
@@ -584,63 +613,121 @@ function attachAppHandlers() {
   });
 
   const approveBtn = document.getElementById("approveBtn");
-  if (approveBtn) approveBtn.addEventListener("click", () => {
+  if (approveBtn) approveBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "APPROVE")) return;
-    g.category = g.aiSuggestion.category;
-    g.responsibleAuthority = g.aiSuggestion.authority;
-    g.displayId = "GOV-GRV-2026-" + g.id.replace(/-/g, "").slice(0, 6).toUpperCase();
-    if (isValidTransition(g.status, "NEW")) g.status = "NEW";
-    addAudit(g, "HUMAN_REVIEWED", "Approved AI suggestion — official case opened");
-    render();
+    approveBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "APPROVE", category: g.aiSuggestion.category, responsibleAuthority: g.aiSuggestion.authority }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      approveBtn.disabled = false;
+      alert("Could not approve — check your connection and try again.");
+    }
   });
 
   const rejectBtn = document.getElementById("rejectBtn");
-  if (rejectBtn) rejectBtn.addEventListener("click", () => {
+  if (rejectBtn) rejectBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "APPROVE")) return;
-    if (isValidTransition(g.status, "REVIEW_REQUIRED")) g.status = "REVIEW_REQUIRED";
-    addAudit(g, "SENT_BACK_FOR_CORRECTION", "Reviewer rejected the AI suggestion");
-    render();
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REJECT" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not send back — check your connection and try again.");
+    }
   });
 
   const assignBtn = document.getElementById("assignBtn");
-  if (assignBtn) assignBtn.addEventListener("click", () => {
+  if (assignBtn) assignBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "ASSIGN")) return;
     const name = document.getElementById("assigneeInput").value || "Unassigned staff";
-    g.assignedTo = name;
-    if (isValidTransition(g.status, "ASSIGNED")) g.status = "ASSIGNED";
-    addAudit(g, "ASSIGNED", `Assigned to ${name}`);
-    render();
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ASSIGN", assignedTo: name }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not assign — check your connection and try again.");
+    }
   });
 
-  document.querySelectorAll(".statusBtn").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".statusBtn").forEach(b => b.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "EDIT")) return;
     const newStatus = b.dataset.status;
     if (!isValidTransition(g.status, newStatus)) return;
-    const old = g.status; g.status = newStatus;
-    addAudit(g, "STATUS_CHANGED", `${old.replace(/_/g," ")} → ${newStatus.replace(/_/g," ")}`);
-    render();
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "STATUS_CHANGE", newStatus }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not update status — check your connection and try again.");
+    }
   }));
 
   const verifyBtn = document.getElementById("verifyBtn");
-  if (verifyBtn) verifyBtn.addEventListener("click", () => {
+  if (verifyBtn) verifyBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "VERIFY") || !isValidTransition(g.status, "VERIFIED")) return;
-    g.status = "VERIFIED";
-    addAudit(g, "VERIFIED", "Outcome verified");
-    render();
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "VERIFY" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not verify — check your connection and try again.");
+    }
   });
 
   const closeBtn = document.getElementById("closeBtn");
-  if (closeBtn) closeBtn.addEventListener("click", () => {
+  if (closeBtn) closeBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "CLOSE") || !isValidTransition(g.status, "CLOSED")) return;
-    g.status = "CLOSED";
-    addAudit(g, "CLOSED", "Case closed");
-    render();
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "CLOSE" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert("Could not close — check your connection and try again.");
+    }
   });
 
   const addTaskBtn = document.getElementById("addTaskBtn");

@@ -94,9 +94,21 @@ export async function onRequestPatch(context) {
   } else if (action === "ASSIGN") {
     if (!hasPermission(role, "ASSIGN")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
     if (!isValidTransition(row.status, "ASSIGNED")) return Response.json({ error: "INVALID_TRANSITION" }, { status: 409 });
-    const assignee = (body.assignedTo || "").trim() || "Unassigned staff";
-    await env.DB.prepare(`UPDATE grievances SET status='ASSIGNED', assigned_to=?, updated_at=datetime('now') WHERE id=?`).bind(assignee, id).run();
-    await recordAudit(env, { grievanceId: id, action: "ASSIGNED", detail: `Assigned to ${assignee}`, ...actorMeta });
+
+    // Must be a real, provisioned GovernIQ email — not a free-text display
+    // name. assigned_to is what the OWN_ASSIGNED scope filter matches
+    // against elsewhere, so a typo or a plain name here would silently
+    // hide the case from the person it was meant for.
+    const assigneeEmail = (body.assignedTo || "").trim().toLowerCase();
+    if (!assigneeEmail || !assigneeEmail.includes("@")) {
+      return Response.json({ error: "VALIDATION_ERROR", message: "Enter the assignee's email address" }, { status: 400 });
+    }
+    const assigneeUser = await env.DB.prepare("SELECT email, name FROM users WHERE email = ?").bind(assigneeEmail).first();
+    if (!assigneeUser) {
+      return Response.json({ error: "ASSIGNEE_NOT_FOUND", message: "That email isn't a provisioned GovernIQ user" }, { status: 400 });
+    }
+    await env.DB.prepare(`UPDATE grievances SET status='ASSIGNED', assigned_to=?, updated_at=datetime('now') WHERE id=?`).bind(assigneeUser.email, id).run();
+    await recordAudit(env, { grievanceId: id, action: "ASSIGNED", detail: `Assigned to ${assigneeUser.name} (${assigneeUser.email})`, ...actorMeta });
 
   } else if (action === "STATUS_CHANGE") {
     if (!hasPermission(role, "EDIT")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });

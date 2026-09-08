@@ -467,7 +467,7 @@ function renderDetail() {
     ${g.status === "NEW" ? `
       <div class="panel">
         <div class="section-title" style="margin-top:0;">Assign</div>
-        <input class="f" id="assigneeInput" placeholder="Assignee name" />
+        <input class="f" id="assigneeInput" placeholder="Assignee email (must be a provisioned GovernIQ user)" type="email" />
         <button class="btn primary" id="assignBtn" ${canAssign ? "" : "disabled"}>${canAssign ? "Assign" : "Assign requires Office Admin+"}</button>
       </div>` : ""}
 
@@ -659,19 +659,19 @@ function attachAppHandlers() {
   if (assignBtn) assignBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "ASSIGN")) return;
-    const name = document.getElementById("assigneeInput").value || "Unassigned staff";
+    const email = document.getElementById("assigneeInput").value.trim();
     try {
       const res = await fetch(`/api/grievances/${g.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "ASSIGN", assignedTo: name }),
+        body: JSON.stringify({ action: "ASSIGN", assignedTo: email }),
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      if (data.error) throw new Error(data.message || data.error);
       applyServerGrievance(g, data);
       render();
     } catch (e) {
-      alert("Could not assign — check your connection and try again.");
+      alert(e.message || "Could not assign — check your connection and try again.");
     }
   });
 

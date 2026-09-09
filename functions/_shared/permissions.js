@@ -26,3 +26,20 @@ export function hasPermission(role, action) {
   if (!perms || !(action in perms)) return false;
   return perms[action] === true;
 }
+
+// ---------------------------------------------------------------------
+// Office records (Projects, Documents, Commitments) — added alongside
+// grievances. These use a simpler view/manage split than grievances'
+// multi-action model: every role that can VIEW grievances (hasPermission
+// with "VIEW" — true for all roles today) can also view these, but only
+// the roles that actually run the office day-to-day can create, edit, or
+// mark them complete. Field team and research team stay read-only here
+// even though FIELD_TEAM can create grievances — running a road project
+// or logging a government order isn't part of that role's job, so this
+// is intentionally a separate permission concept from grievance CREATE.
+// ---------------------------------------------------------------------
+export const OFFICE_RECORD_MANAGERS = new Set(["OFFICE_ADMIN", "CHIEF_OF_STAFF", "CONSTITUENCY_TEAM"]);
+
+export function canManageOfficeRecords(role) {
+  return OFFICE_RECORD_MANAGERS.has(role);
+}

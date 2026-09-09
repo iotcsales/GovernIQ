@@ -30,16 +30,17 @@
   html[dir="rtl"] .askbar-wrap,html[dir="rtl"] .ask-answer{left:0;right:64px;}
   @media (max-width:860px){ html[dir="rtl"] .askbar-wrap,html[dir="rtl"] .ask-answer{right:0;} }
   html[dir="rtl"] .field-row{grid-template-columns:1fr 132px;}
-  html[dir="rtl"] .card.st-draft,html[dir="rtl"] .card.st-pending,html[dir="rtl"] .card.st-new,
-  html[dir="rtl"] .card.st-assigned,html[dir="rtl"] .card.st-progress,html[dir="rtl"] .card.st-closed,
-  html[dir="rtl"] .card.st-critical{border-left:none;}
-  html[dir="rtl"] .card{border-right:3px solid var(--line);}
+  html[dir="rtl"] .card{border-left:none;border-right:3px solid var(--line);}
   html[dir="rtl"] .card.st-draft{border-right-color:var(--slate);}
   html[dir="rtl"] .card.st-pending{border-right-color:var(--amber);}
   html[dir="rtl"] .card.st-new,html[dir="rtl"] .card.st-assigned{border-right-color:var(--indigo-3);}
   html[dir="rtl"] .card.st-progress{border-right-color:var(--teal);}
   html[dir="rtl"] .card.st-closed{border-right-color:#7C8A73;}
   html[dir="rtl"] .card.st-critical{border-right-color:var(--brick);}
+  html[dir="rtl"] .stat{border-left:none;border-right:3px solid var(--indigo-3);}
+  html[dir="rtl"] .stat.crit{border-right-color:var(--brick);}
+  html[dir="rtl"] .stat.amber{border-right-color:var(--amber);}
+  html[dir="rtl"] .stat.teal{border-right-color:var(--teal);}
   body{margin:0;background:var(--paper);color:var(--slate-dark);font-family:'IBM Plex Sans','Noto Sans Devanagari',sans-serif;-webkit-font-smoothing:antialiased;}
   .serif{font-family:'Fraunces','Noto Serif Devanagari',serif;}
   button{font-family:inherit;cursor:pointer;}
@@ -926,12 +927,12 @@ function renderProjects() {
       <div class="card st-${projectStatusTagClass(p.status)}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div>
-            <div class="card-title">${p.title}</div>
-            <div class="card-meta">${[p.department, p.location_text].filter(Boolean).join(" · ")}</div>
+            <div class="card-title"><bdi>${p.title}</bdi></div>
+            <div class="card-meta"><bdi>${[p.department, p.location_text].filter(Boolean).join(" · ")}</bdi></div>
           </div>
           <span class="tag ${projectStatusTagClass(p.status)}">${prettyStatus(p.status)}</span>
         </div>
-        ${p.description ? `<div class="why">${p.description}</div>` : ""}
+        ${p.description ? `<div class="why"><bdi>${p.description}</bdi></div>` : ""}
         ${canManage ? `<div class="btn-row">${["PLANNED", "IN_PROGRESS", "AT_RISK", "DELAYED", "COMPLETED"].filter(s => s !== p.status).map(s =>
           `<button class="btn projectStatusBtn" data-id="${p.id}" data-status="${s}">${prettyStatus(s)}</button>`).join("")}</div>` : ""}
       </div>
@@ -970,9 +971,9 @@ function renderDocuments() {
     </div>
     ${documents.length === 0 ? `<div class="empty">${t("noDocumentsYet")}</div>` : documents.map(d => `
       <div class="card">
-        <div class="card-title">${d.title}</div>
-        <div class="card-meta">${[d.source_department, d.doc_type, d.received_date].filter(Boolean).join(" · ")}</div>
-        ${d.summary ? `<div class="why">${d.summary}</div>` : ""}
+        <div class="card-title"><bdi>${d.title}</bdi></div>
+        <div class="card-meta"><bdi>${[d.source_department, d.doc_type, d.received_date].filter(Boolean).join(" · ")}</bdi></div>
+        ${d.summary ? `<div class="why"><bdi>${d.summary}</bdi></div>` : ""}
       </div>
     `).join("")}
   `;
@@ -1015,12 +1016,12 @@ function renderCommitments() {
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div>
-            <div class="card-title">${c.title}</div>
-            <div class="card-meta">${c.due_date ? t("due") + " " + c.due_date : ""}</div>
+            <div class="card-title"><bdi>${c.title}</bdi></div>
+            <div class="card-meta"><bdi>${c.due_date ? t("due") + " " + c.due_date : ""}</bdi></div>
           </div>
           <span class="tag ${commitmentStatusTagClass(c.status)}">${prettyStatus(c.status)}</span>
         </div>
-        ${c.description ? `<div class="why">${c.description}</div>` : ""}
+        ${c.description ? `<div class="why"><bdi>${c.description}</bdi></div>` : ""}
         ${canManage && c.status !== "DONE" ? `<div class="btn-row"><button class="btn commitmentDoneBtn" data-id="${c.id}">${t("markDone")}</button></div>` : ""}
       </div>
     `).join("")}
@@ -1126,7 +1127,7 @@ function renderPulse() {
   return cats.map(c => {
     const pct = Math.round((buckets[c] / maxOpen) * 100);
     const fillClass = buckets[c] >= maxOpen ? "high" : buckets[c] === 0 ? "low" : "";
-    return `<div class="pulse-item"><span class="pulse-name">${c}</span><div class="pulse-bar"><div class="pulse-fill ${fillClass}" style="width:${pct}%"></div></div><span class="pulse-val">${buckets[c]} ${t("open")}</span></div>`;
+    return `<div class="pulse-item"><span class="pulse-name"><bdi>${c}</bdi></span><div class="pulse-bar"><div class="pulse-fill ${fillClass}" style="width:${pct}%"></div></div><span class="pulse-val">${buckets[c]} ${t("open")}</span></div>`;
   }).join("");
 }
 
@@ -1138,7 +1139,7 @@ function activityDotClass(action) {
 function renderWhatChanged() {
   if (activity.length === 0) return `<div class="empty">${t("noRecentActivity")}</div>`;
   return activity.slice(0, 6).map(a =>
-    `<div class="changed-item"><span class="changed-dot ${activityDotClass(a.action)}"></span>${a.entity_title || a.detail || a.action}</div>`
+    `<div class="changed-item"><span class="changed-dot ${activityDotClass(a.action)}"></span><bdi>${a.entity_title || a.detail || a.action}</bdi></div>`
   ).join("");
 }
 
@@ -1148,7 +1149,7 @@ function renderCommitmentsDueSoon() {
   if (upcoming.length === 0) return `<div class="empty">${t("noCommitmentsDueSoon")}</div>`;
   return upcoming.map(c => {
     const d = daysBetween(c.due_date);
-    return `<div class="changed-item"><span class="changed-dot ${d < 0 ? "new" : "upd"}"></span>${c.title} — ${dueText(d)}</div>`;
+    return `<div class="changed-item"><span class="changed-dot ${d < 0 ? "new" : "upd"}"></span><bdi>${c.title} — ${dueText(d)}</bdi></div>`;
   }).join("");
 }
 
@@ -1177,13 +1178,13 @@ function renderMyDay() {
           <div class="card st-${it.tagClass}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
               <div>
-                <div class="card-title">${it.title}</div>
-                ${it.meta ? `<div class="card-meta">${it.meta}</div>` : ""}
+                <div class="card-title"><bdi>${it.title}</bdi></div>
+                ${it.meta ? `<div class="card-meta"><bdi>${it.meta}</bdi></div>` : ""}
               </div>
               <span class="tag ${it.tagClass}">${it.tagLabel}</span>
             </div>
-            <div class="why">${it.why}</div>
-            <div class="card-meta" style="margin-top:6px;"><b>${t("recommendedAction")}:</b> ${it.action}</div>
+            <div class="why"><bdi>${it.why}</bdi></div>
+            <div class="card-meta" style="margin-top:6px;"><b>${t("recommendedAction")}:</b> <bdi>${it.action}</bdi></div>
           </div>
         `).join("")}
       </div>
@@ -1214,12 +1215,12 @@ function renderCaseCard(g, showWhy) {
     <div class="card st-${tagClass(g.status)}" data-open="${g.id}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
         <div>
-          <div class="card-title">${g.title}</div>
-          <div class="card-meta">${g.displayId || t("notYetOfficial")} ${g.priority ? `· <span class="tag critical">${g.priority}</span>` : ""}</div>
+          <div class="card-title"><bdi>${g.title}</bdi></div>
+          <div class="card-meta"><bdi>${g.displayId || t("notYetOfficial")}</bdi> ${g.priority ? `· <span class="tag critical"><bdi>${g.priority}</bdi></span>` : ""}</div>
         </div>
         <span class="tag ${tagClass(g.status)}">${statusLabel(g.status)}</span>
       </div>
-      ${showWhy && why ? `<div class="why">${why}</div>` : ""}
+      ${showWhy && why ? `<div class="why"><bdi>${why}</bdi></div>` : ""}
     </div>`;
 }
 
@@ -1270,13 +1271,13 @@ function renderDetail() {
     </div>
 
     <div class="panel">
-      <div class="field-row"><span class="lbl">${t("caseId")}</span>${g.displayId || t("draftNotOfficial")}</div>
-      <div class="field-row"><span class="lbl">${t("description")}</span>${g.description}</div>
-      <div class="field-row"><span class="lbl">${t("location")}</span>${g.locationText}</div>
-      <div class="field-row"><span class="lbl">${t("citizen")}</span>${canSeeSensitive ? `${g.citizenName} · ${g.citizenContact}` : `<span class="redacted">${t("hiddenSensitive")}</span>`}</div>
-      ${g.category ? `<div class="field-row"><span class="lbl">${t("category")}</span>${g.category}</div>` : ""}
-      ${g.responsibleAuthority ? `<div class="field-row"><span class="lbl">${t("responsibleAuthority")}</span>${g.responsibleAuthority}</div>` : ""}
-      ${g.assignedTo ? `<div class="field-row"><span class="lbl">${t("assignedTo")}</span>${g.assignedTo}</div>` : ""}
+      <div class="field-row"><span class="lbl">${t("caseId")}</span><bdi>${g.displayId || t("draftNotOfficial")}</bdi></div>
+      <div class="field-row"><span class="lbl">${t("description")}</span><bdi>${g.description}</bdi></div>
+      <div class="field-row"><span class="lbl">${t("location")}</span><bdi>${g.locationText}</bdi></div>
+      <div class="field-row"><span class="lbl">${t("citizen")}</span>${canSeeSensitive ? `<bdi>${g.citizenName} · ${g.citizenContact}</bdi>` : `<span class="redacted">${t("hiddenSensitive")}</span>`}</div>
+      ${g.category ? `<div class="field-row"><span class="lbl">${t("category")}</span><bdi>${g.category}</bdi></div>` : ""}
+      ${g.responsibleAuthority ? `<div class="field-row"><span class="lbl">${t("responsibleAuthority")}</span><bdi>${g.responsibleAuthority}</bdi></div>` : ""}
+      ${g.assignedTo ? `<div class="field-row"><span class="lbl">${t("assignedTo")}</span><bdi>${g.assignedTo}</bdi></div>` : ""}
     </div>
 
     ${g.status === "DRAFT" ? `
@@ -1292,12 +1293,12 @@ function renderDetail() {
         <div class="ai-box">
           <span class="ai-badge">${t("aiInference")}</span>
           ${g.aiSuggestion.requiresExtraScrutiny ? `<span class="ai-badge scrutiny">${t("needsScrutiny")}</span>` : ""}
-          <div class="ai-row"><span class="lbl">${t("sentToAi")}</span> "${g.aiSuggestion.redactedSent}"</div>
-          <div class="ai-row"><span class="lbl">${t("category")}</span> ${g.aiSuggestion.category}</div>
-          <div class="ai-row"><span class="lbl">${t("severity")}</span> ${g.aiSuggestion.severity}</div>
-          <div class="ai-row"><span class="lbl">${t("likelyAuthority")}</span> ${g.aiSuggestion.authority}</div>
-          <div class="ai-row"><span class="lbl">${t("recommendedAction")}</span> ${g.aiSuggestion.action}</div>
-          <div class="ai-row"><span class="lbl">${t("confidence")}</span> ${g.aiSuggestion.confidence}</div>
+          <div class="ai-row"><span class="lbl">${t("sentToAi")}</span> <bdi>"${g.aiSuggestion.redactedSent}"</bdi></div>
+          <div class="ai-row"><span class="lbl">${t("category")}</span> <bdi>${g.aiSuggestion.category}</bdi></div>
+          <div class="ai-row"><span class="lbl">${t("severity")}</span> <bdi>${g.aiSuggestion.severity}</bdi></div>
+          <div class="ai-row"><span class="lbl">${t("likelyAuthority")}</span> <bdi>${g.aiSuggestion.authority}</bdi></div>
+          <div class="ai-row"><span class="lbl">${t("recommendedAction")}</span> <bdi>${g.aiSuggestion.action}</bdi></div>
+          <div class="ai-row"><span class="lbl">${t("confidence")}</span> <bdi>${g.aiSuggestion.confidence}</bdi></div>
         </div>
         ${g.status === "PENDING_REVIEW" ? `
           <div class="btn-row">
@@ -1338,7 +1339,7 @@ function renderDetail() {
       <div class="panel">
         <div class="section-title" style="margin-top:0;">${t("tasks")}</div>
         ${g.tasks.length === 0 ? `<div class="empty">${t("noTasksYet")}</div>` :
-          g.tasks.map((tk,i) => `<div class="task-item"><span>${tk.title} — ${t("due")} ${tk.dueDate}</span><button class="btn taskDoneBtn" data-idx="${i}" ${(tk.status==="COMPLETED"||!canEdit)?"disabled":""}>${tk.status==="COMPLETED"?t("done"):t("markDone")}</button></div>`).join("")}
+          g.tasks.map((tk,i) => `<div class="task-item"><span><bdi>${tk.title} — ${t("due")} ${tk.dueDate}</bdi></span><button class="btn taskDoneBtn" data-idx="${i}" ${(tk.status==="COMPLETED"||!canEdit)?"disabled":""}>${tk.status==="COMPLETED"?t("done"):t("markDone")}</button></div>`).join("")}
         <div class="btn-row">
           <input class="f" id="taskTitle" placeholder="${t("taskPlaceholder")}" style="flex:2;margin-bottom:0;" />
           <input class="f" id="taskDue" type="date" style="flex:1;margin-bottom:0;" />
@@ -1349,7 +1350,7 @@ function renderDetail() {
       <div class="panel">
         <div class="section-title" style="margin-top:0;">${t("evidence")}</div>
         ${g.evidence.length === 0 ? `<div class="empty">${t("noEvidenceYet")}</div>` :
-          g.evidence.map(e => `<div class="evid-item"><span>${e.description} (${e.source})</span><span style="color:var(--slate);">${e.capturedBy}</span></div>`).join("")}
+          g.evidence.map(e => `<div class="evid-item"><span><bdi>${e.description} (${e.source})</bdi></span><span style="color:var(--slate);"><bdi>${e.capturedBy}</bdi></span></div>`).join("")}
         <div class="btn-row">
           <input class="f" id="evidenceDesc" placeholder="${t("evidencePlaceholder")}" style="flex:2;margin-bottom:0;" />
           <button class="btn" id="addEvidenceBtn" ${canEdit ? "" : "disabled"}>${t("add")}</button>
@@ -1358,7 +1359,7 @@ function renderDetail() {
 
     <div class="panel">
       <div class="section-title" style="margin-top:0;">${t("auditHistory")}</div>
-      ${g.audit.map(a => `<div class="audit-item"><b>${a.action}</b> — ${a.actor} · ${a.at}${a.detail ? " — " + a.detail : ""}</div>`).join("")}
+      ${g.audit.map(a => `<div class="audit-item"><bdi><b>${a.action}</b> — ${a.actor} · ${a.at}${a.detail ? " — " + a.detail : ""}</bdi></div>`).join("")}
     </div>
   `;
 }
@@ -1781,12 +1782,12 @@ function attachAppHandlers() {
       const out = await res.json();
       if (out.error) throw new Error(out.error);
       inner.innerHTML = `
-        <div class="ans-row answer"><span class="lbl">${escapeHtml(t("answer"))}</span><div class="val">${escapeHtml(out.answer)}</div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("whyItMatters"))}</span><div class="val">${escapeHtml(out.why_it_matters || "")}</div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("evidence"))}</span><div class="val">${escapeHtml(out.evidence || "")}</div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("confidence"))}</span><div class="val"><span class="conf-badge conf-${out.confidence}">${escapeHtml(out.confidence || "")}</span></div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("whatsMissing"))}</span><div class="val">${escapeHtml(out.whats_missing || "")}</div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("recommendedNextStep"))}</span><div class="val">${escapeHtml(out.recommended_next_step || "")}</div></div>
+        <div class="ans-row answer"><span class="lbl">${escapeHtml(t("answer"))}</span><div class="val"><bdi>${escapeHtml(out.answer)}</bdi></div></div>
+        <div class="ans-row"><span class="lbl">${escapeHtml(t("whyItMatters"))}</span><div class="val"><bdi>${escapeHtml(out.why_it_matters || "")}</bdi></div></div>
+        <div class="ans-row"><span class="lbl">${escapeHtml(t("evidence"))}</span><div class="val"><bdi>${escapeHtml(out.evidence || "")}</bdi></div></div>
+        <div class="ans-row"><span class="lbl">${escapeHtml(t("confidence"))}</span><div class="val"><span class="conf-badge conf-${out.confidence}"><bdi>${escapeHtml(out.confidence || "")}</bdi></span></div></div>
+        <div class="ans-row"><span class="lbl">${escapeHtml(t("whatsMissing"))}</span><div class="val"><bdi>${escapeHtml(out.whats_missing || "")}</bdi></div></div>
+        <div class="ans-row"><span class="lbl">${escapeHtml(t("recommendedNextStep"))}</span><div class="val"><bdi>${escapeHtml(out.recommended_next_step || "")}</bdi></div></div>
       `;
     } catch (e) { inner.innerHTML = `<div>${t("couldNotReach")}</div>`; }
   });

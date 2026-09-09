@@ -78,6 +78,24 @@
   .card.st-new,.card.st-assigned{border-left-color:var(--indigo-3);}
   .card.st-progress{border-left-color:var(--teal);}
   .card.st-closed{border-left-color:#7C8A73;}
+  .card.st-critical{border-left-color:var(--brick);}
+
+  .my-day-grid{display:grid;grid-template-columns:1fr 300px;gap:20px;}
+  @media (max-width:760px){ .my-day-grid{grid-template-columns:1fr;} }
+  .pulse-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);}
+  .pulse-item:last-child{border-bottom:none;}
+  .pulse-name{font-size:13px;color:var(--slate-dark);font-weight:500;}
+  .pulse-bar{flex:1;height:5px;background:var(--paper-2);border-radius:3px;margin:0 10px;overflow:hidden;}
+  .pulse-fill{height:100%;background:var(--brass);}
+  .pulse-fill.high{background:var(--brick);}
+  .pulse-fill.low{background:var(--teal);}
+  .pulse-val{font-size:11.5px;color:var(--slate);white-space:nowrap;}
+  .changed-item{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:#3E4457;padding:7px 0;border-bottom:1px solid var(--line);line-height:1.4;}
+  .changed-item:last-child{border-bottom:none;}
+  .changed-dot{width:6px;height:6px;border-radius:50%;margin-top:5px;flex-shrink:0;}
+  .changed-dot.new{background:var(--brick);}
+  .changed-dot.res{background:var(--teal);}
+  .changed-dot.upd{background:var(--brass);}
   .card-title{font-family:'Fraunces','Noto Serif Devanagari',serif;font-size:15.5px;font-weight:500;margin:2px 0 4px;color:var(--ink);}
   .card-meta{font-size:12px;color:var(--slate);}
   .card .why{font-size:12.5px;color:#3E4457;margin-top:7px;padding-top:7px;border-top:1px solid var(--line);}
@@ -238,6 +256,16 @@ const UI = {
     newDocument:"Log a document", noDocumentsYet:"No documents logged yet.",
     sourceDepartment:"Source department", docType:"Document type", receivedDate:"Received date", summary:"Summary",
     newCommitment:"New commitment", noCommitmentsYet:"No commitments yet.", dueDate:"Due date",
+    atRiskProjects:"At-risk projects", constituencyPulse:"Constituency Pulse", whatChanged:"What Changed",
+    commitmentsDueSoon:"Commitments Due Soon", noCategorizedCasesYet:"No categorized cases yet.",
+    open:"open", noRecentActivity:"No recent activity.", noCommitmentsDueSoon:"Nothing due soon.",
+    priority:"priority", days:"days", openFor:"Open", overdue:"Overdue by", dueToday:"Due today", dueIn:"Due in",
+    actionReviewClassification:"Review the AI classification and approve or send back.",
+    actionFollowUpDept:"Follow up with the responsible department directly.",
+    sanctioned:"Sanctioned", actionRequestUpdate:"Request a status update from the department.",
+    actionSendFollowUp:"Send a follow-up on this commitment.",
+    recentlyLogged:"Recently logged — no summary provided.", actionReviewDocument:"Review and assign follow-up if needed.",
+    tagUrgent:"URGENT", tagWatch:"WATCH", tagFollowup:"FOLLOW-UP", tagTodo:"TO REVIEW",
   },
   hi: {
     appName:"GovernIQ", verifying:"आपका सत्र सत्यापित किया जा रहा है…",
@@ -358,6 +386,7 @@ let grievances = [];
 let projects = [];
 let documents = [];
 let commitments = [];
+let activity = [];
 let currentView = "MY_DAY";
 let currentCaseId = null;
 let idCounter = 1000;
@@ -447,7 +476,7 @@ async function init() {
     }
     session = { name: body.name, role: body.role, email: body.email, tenantId: body.tenant_id };
     currentView = "MY_DAY";
-    await Promise.all([loadGrievances(), loadProjects(), loadDocuments(), loadCommitments()]);
+    await Promise.all([loadGrievances(), loadProjects(), loadDocuments(), loadCommitments(), loadActivity()]);
     render();
   } catch (e) {
     authError = "couldNotReachVerify";
@@ -495,6 +524,7 @@ async function loadGrievances() {
       priority: r.priority,
       responsibleAuthority: r.responsible_authority,
       assignedTo: r.assigned_to,
+      createdAt: r.created_at,
       aiSuggestion: null,       // populated when a case is opened (detail fetch), not in the list
       tasks: r.tasks || [], evidence: [],  // evidence populated on detail fetch; tasks come with the list for the My Day overdue count
       audit: [{ action: "CREATED", actor: "database", at: r.created_at, detail: "Loaded from D1" }],
@@ -515,6 +545,10 @@ async function loadDocuments() {
 async function loadCommitments() {
   try { const res = await fetch("/api/commitments"); commitments = await res.json(); }
   catch (e) { commitments = []; }
+}
+async function loadActivity() {
+  try { const res = await fetch("/api/activity"); activity = await res.json(); }
+  catch (e) { activity = []; }
 }
 
 function tagClass(status) {
@@ -702,13 +736,123 @@ function renderCommitmentForm() {
   `;
 }
 
+function daysBetween(dateStr) {
+  if (!dateStr) return null;
+  const target = new Date(dateStr + "T00:00:00");
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  return Math.round((target - now) / 86400000);
+}
+function ageDays(dateTimeStr) {
+  if (!dateTimeStr) return null;
+  const created = new Date(dateTimeStr.replace(" ", "T") + "Z");
+  if (isNaN(created.getTime())) return null;
+  return Math.floor((Date.now() - created.getTime()) / 86400000);
+}
+function dueText(d) {
+  if (d < 0) return `${t("overdue")} ${Math.abs(d)} ${t("days")}`;
+  if (d === 0) return t("dueToday");
+  return `${t("dueIn")} ${d} ${t("days")}`;
+}
+
+// Everything below is computed directly from real fields already in D1 —
+// priority, status, due_date, sanctioned_date, timestamps. None of this is
+// AI-generated text; the one place real AI output exists (classify.js's
+// suggestion) keeps its own "AI INFERENCE" badge in the case detail view,
+// unchanged. This dashboard never manufactures reasoning that wasn't
+// actually computed.
+function buildIntelligenceItems() {
+  const items = [];
+
+  grievances.forEach(g => {
+    if (g.status === "CLOSED" || g.status === "DRAFT") return;
+    if (g.status === "PENDING_REVIEW") {
+      items.push({ tagLabel: t("tagTodo"), tagClass: "new", title: g.title, meta: g.displayId || t("notYetOfficial"),
+        why: t("aiReadyReview"), action: t("actionReviewClassification"), rank: 3 });
+      return;
+    }
+    if (g.priority === "CRITICAL" || g.priority === "HIGH") {
+      const age = ageDays(g.createdAt);
+      items.push({ tagLabel: t("tagUrgent"), tagClass: "critical", title: g.title, meta: g.displayId,
+        why: `${prettyStatus(g.priority)} ${t("priority")}${age != null ? " · " + t("openFor") + " " + age + " " + t("days") : ""}`,
+        action: t("actionFollowUpDept"), rank: g.priority === "CRITICAL" ? 1 : 2 });
+    }
+  });
+
+  projects.forEach(p => {
+    if (p.status === "AT_RISK" || p.status === "DELAYED") {
+      items.push({ tagLabel: t("tagWatch"), tagClass: "pending", title: p.title, meta: p.department || "",
+        why: `${prettyStatus(p.status)}${p.sanctioned_date ? " · " + t("sanctioned") + " " + p.sanctioned_date : ""}`,
+        action: t("actionRequestUpdate"), rank: p.status === "AT_RISK" ? 2 : 3 });
+    }
+  });
+
+  commitments.forEach(c => {
+    if (c.status === "DONE") return;
+    const d = daysBetween(c.due_date);
+    if (d !== null && d <= 3) {
+      items.push({ tagLabel: d < 0 ? t("tagUrgent") : t("tagTodo"), tagClass: d < 0 ? "critical" : "new",
+        title: c.title, meta: "", why: dueText(d), action: t("actionSendFollowUp"), rank: d < 0 ? 1 : 2 });
+    }
+  });
+
+  documents.forEach(doc => {
+    const age = ageDays(doc.created_at);
+    if (age !== null && age <= 7) {
+      items.push({ tagLabel: t("tagFollowup"), tagClass: "progress", title: doc.title, meta: doc.source_department || "",
+        why: doc.summary || t("recentlyLogged"), action: t("actionReviewDocument"), rank: 4 });
+    }
+  });
+
+  items.sort((a, b) => a.rank - b.rank);
+  return items.slice(0, 6);
+}
+
+function renderPulse() {
+  const buckets = {};
+  grievances.forEach(g => {
+    if (!g.category) return;
+    if (!buckets[g.category]) buckets[g.category] = 0;
+    if (!["CLOSED", "VERIFIED"].includes(g.status)) buckets[g.category]++;
+  });
+  const cats = Object.keys(buckets);
+  if (cats.length === 0) return `<div class="empty">${t("noCategorizedCasesYet")}</div>`;
+  const maxOpen = Math.max(...cats.map(c => buckets[c]), 1);
+  return cats.map(c => {
+    const pct = Math.round((buckets[c] / maxOpen) * 100);
+    const fillClass = buckets[c] >= maxOpen ? "high" : buckets[c] === 0 ? "low" : "";
+    return `<div class="pulse-item"><span class="pulse-name">${c}</span><div class="pulse-bar"><div class="pulse-fill ${fillClass}" style="width:${pct}%"></div></div><span class="pulse-val">${buckets[c]} ${t("open")}</span></div>`;
+  }).join("");
+}
+
+function activityDotClass(action) {
+  if (["CREATED", "LOGGED"].includes(action)) return "new";
+  if (["CLOSED", "COMPLETED", "VERIFIED"].includes(action)) return "res";
+  return "upd";
+}
+function renderWhatChanged() {
+  if (activity.length === 0) return `<div class="empty">${t("noRecentActivity")}</div>`;
+  return activity.slice(0, 6).map(a =>
+    `<div class="changed-item"><span class="changed-dot ${activityDotClass(a.action)}"></span>${a.entity_title || a.detail || a.action}</div>`
+  ).join("");
+}
+
+function renderCommitmentsDueSoon() {
+  const upcoming = commitments.filter(c => c.status !== "DONE" && c.due_date)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 5);
+  if (upcoming.length === 0) return `<div class="empty">${t("noCommitmentsDueSoon")}</div>`;
+  return upcoming.map(c => {
+    const d = daysBetween(c.due_date);
+    return `<div class="changed-item"><span class="changed-dot ${d < 0 ? "new" : "upd"}"></span>${c.title} — ${dueText(d)}</div>`;
+  }).join("");
+}
+
 function renderMyDay() {
   const urgent = grievances.filter(g => g.priority === "HIGH" || g.priority === "CRITICAL").length;
   const awaiting = grievances.filter(g => g.status === "PENDING_REVIEW").length;
   const active = grievances.filter(g => ["ASSIGNED","IN_PROGRESS","WAITING_ON_DEPARTMENT","ESCALATED"].includes(g.status)).length;
-  const overdueTasks = grievances.flatMap(g => g.tasks).filter(t => t.status !== "COMPLETED" && t.dueDate && new Date(t.dueDate) < new Date()).length;
-  const topCases = [...grievances].filter(g => g.status !== "CLOSED" && g.status !== "DRAFT")
-    .sort((a,b) => (b.priority==="CRITICAL"?3:b.priority==="HIGH"?2:1) - (a.priority==="CRITICAL"?3:a.priority==="HIGH"?2:1)).slice(0,4);
+  const overdueTasks = grievances.flatMap(g => g.tasks).filter(tk => tk.status !== "COMPLETED" && tk.dueDate && new Date(tk.dueDate) < new Date()).length;
+  const atRiskProjects = projects.filter(p => p.status === "AT_RISK" || p.status === "DELAYED").length;
+  const items = buildIntelligenceItems();
 
   return `
     <div class="section-title">${t("goodMorning")}, ${session.name.split(" ")[0]}</div>
@@ -717,10 +861,41 @@ function renderMyDay() {
       <div class="stat amber"><b>${awaiting}</b><span>${t("awaitingReview")}</span></div>
       <div class="stat teal"><b>${active}</b><span>${t("activeCases")}</span></div>
       <div class="stat"><b>${overdueTasks}</b><span>${t("overdueTasks")}</span></div>
+      <div class="stat amber"><b>${atRiskProjects}</b><span>${t("atRiskProjects")}</span></div>
     </div>
-    <div class="section-title">${t("needsAttention")}</div>
-    ${topCases.length === 0 ? `<div class="empty">${t("nothingNeedsAttention")}</div>` :
-      topCases.map(g => renderCaseCard(g, true)).join("")}
+
+    <div class="my-day-grid">
+      <div class="col-main">
+        <div class="section-title" style="margin-top:0;">${t("needsAttention")}</div>
+        ${items.length === 0 ? `<div class="empty">${t("nothingNeedsAttention")}</div>` : items.map(it => `
+          <div class="card st-${it.tagClass}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <div>
+                <div class="card-title">${it.title}</div>
+                ${it.meta ? `<div class="card-meta">${it.meta}</div>` : ""}
+              </div>
+              <span class="tag ${it.tagClass}">${it.tagLabel}</span>
+            </div>
+            <div class="why">${it.why}</div>
+            <div class="card-meta" style="margin-top:6px;"><b>${t("recommendedAction")}:</b> ${it.action}</div>
+          </div>
+        `).join("")}
+      </div>
+      <div class="col-side">
+        <div class="panel">
+          <div class="section-title" style="margin-top:0;">${t("constituencyPulse")}</div>
+          ${renderPulse()}
+        </div>
+        <div class="panel">
+          <div class="section-title" style="margin-top:0;">${t("whatChanged")}</div>
+          ${renderWhatChanged()}
+        </div>
+        <div class="panel">
+          <div class="section-title" style="margin-top:0;">${t("commitmentsDueSoon")}</div>
+          ${renderCommitmentsDueSoon()}
+        </div>
+      </div>
+    </div>
   `;
 }
 

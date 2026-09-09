@@ -5,6 +5,11 @@
 // once: (1) citizen_name/citizen_contact are stripped from the response
 // unless the caller's REAL role has SENSITIVE_DATA_ACCESS, and (2) FIELD_TEAM's
 // "only see assigned cases" scope is now actually enforced, not just defined.
+//
+// UPDATED: title is now optional on create — the new single-box intake
+// flow only collects the raw description; classify.js supplies the real
+// title moments later via AI. A placeholder (truncated description) is
+// used here only as a fallback in case classification never runs.
 
 import { getVerifiedUser } from "../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../_shared/permissions.js";
@@ -72,6 +77,15 @@ export async function onRequestPost(context) {
   }
 
   const body = await request.json();
+
+  const description = (body.description || "").trim();
+  if (!description) {
+    return Response.json({ error: "VALIDATION_ERROR", message: "description is required" }, { status: 400 });
+  }
+  // Title is normally supplied moments later by classify.js's AI suggestion.
+  // This fallback only matters if classification never runs on this draft.
+  const title = (body.title && body.title.trim()) || description.slice(0, 80);
+
   const id = crypto.randomUUID();
 
   await env.DB.prepare(
@@ -79,8 +93,8 @@ export async function onRequestPost(context) {
      VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?)`
   ).bind(
     id,
-    body.title,
-    body.description,
+    title,
+    description,
     body.locationText || null,
     body.citizenName || null,
     body.citizenContact || null,
@@ -98,5 +112,5 @@ export async function onRequestPost(context) {
     actorRole: role,
   });
 
-  return Response.json({ id, status: "DRAFT" });
+  return Response.json({ id, title, status: "DRAFT" });
 }

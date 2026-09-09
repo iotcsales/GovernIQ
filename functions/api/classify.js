@@ -6,6 +6,13 @@
 // The result of classification is now persisted to D1 (ai_suggestion column
 // + status -> PENDING_REVIEW), not just held in browser memory — the
 // approve step reads this stored value rather than trusting the browser.
+//
+// UPDATED: title is no longer collected from the intake form — the office
+// now pastes one free-text description, and the AI suggests both a short
+// case title and (if determinable) the location, alongside the existing
+// category/severity/authority/action/confidence. Both are written back to
+// the grievance record here, the same way the AI suggestion always has
+// been — a human still reviews everything before APPROVE opens the case.
 
 import { getVerifiedUser } from "../_shared/get-verified-user.js";
 import { hasPermission } from "../_shared/permissions.js";
@@ -38,10 +45,10 @@ export async function onRequestPost(context) {
   }
 
   const body = await request.json();
-  const { id, title, description, locationText, citizenName, citizenContact } = body;
+  const { id, description, locationText, citizenName, citizenContact } = body;
 
-  if (!id || !title || !description) {
-    return Response.json({ error: "VALIDATION_ERROR", message: "id, title and description are required" }, { status: 400 });
+  if (!id || !description) {
+    return Response.json({ error: "VALIDATION_ERROR", message: "id and description are required" }, { status: 400 });
   }
 
   const existing = await loadGrievance(env, id);
@@ -53,12 +60,13 @@ export async function onRequestPost(context) {
   }
 
   // PII redaction — server-side, before anything leaves toward the provider.
-  const redactedTitle = redactText(title, citizenName, citizenContact);
+  // Title is no longer part of the input; the AI now generates one as
+  // output instead, from the same redacted description it already sees.
   const redactedDescription = redactText(description, citizenName, citizenContact);
   const redactedLocation = redactText(locationText, citizenName, citizenContact);
-  const minimizedContent = `Title: ${redactedTitle}\nDescription: ${redactedDescription}\nLocation: ${redactedLocation}`;
+  const minimizedContent = `Description: ${redactedDescription}\nLocation: ${redactedLocation || "Not stated"}`;
 
-  const systemPrompt = 'You are the GovernIQ grievance classifier. Input is PII-redacted. Respond ONLY as JSON: {"category":"","severity":"Low|Medium|High|Critical","authority":"","action":"","confidence":"High|Medium|Low"}';
+  const systemPrompt = 'You are the GovernIQ grievance classifier. Input is PII-redacted, raw as received (phone, in person, or written). Respond ONLY as JSON: {"suggested_title":"","category":"","severity":"Low|Medium|High|Critical","authority":"","action":"","confidence":"High|Medium|Low","suggested_location":""}. suggested_title: a short, clear case title under 10 words, in plain language, no citizen name. suggested_location: the place name mentioned in the text, or "Information unavailable" if none is stated — never invent one.';
 
   let anthropicResponse;
   try {
@@ -104,9 +112,24 @@ export async function onRequestPost(context) {
 
   const suggestionToStore = { ...parsed, redactedSent: minimizedContent };
 
+  // A blank/placeholder title should never make it into the stored record —
+  // fall back to a truncated description rather than leave it empty.
+  const finalTitle = (parsed.suggested_title && parsed.suggested_title.trim())
+    || description.trim().slice(0, 80);
+
+  // "Information unavailable" is meaningful to a human reviewer inside the
+  // AI suggestion box, but storing that literal phrase as the case's actual
+  // location field would look like a real place name later — store null
+  // instead so the location field stays honestly empty until someone fills
+  // it in.
+  const locationLower = (parsed.suggested_location || "").trim().toLowerCase();
+  const finalLocation = (parsed.suggested_location && locationLower !== "information unavailable" && locationLower !== "not stated")
+    ? parsed.suggested_location.trim()
+    : (locationText || null);
+
   await env.DB.prepare(
-    `UPDATE grievances SET status='PENDING_REVIEW', priority=?, ai_suggestion=?, updated_at=datetime('now') WHERE id=?`
-  ).bind((parsed.severity || "").toUpperCase(), JSON.stringify(suggestionToStore), id).run();
+    `UPDATE grievances SET status='PENDING_REVIEW', title=?, location_text=?, priority=?, ai_suggestion=?, updated_at=datetime('now') WHERE id=?`
+  ).bind(finalTitle, finalLocation, (parsed.severity || "").toUpperCase(), JSON.stringify(suggestionToStore), id).run();
 
   await recordAudit(env, {
     grievanceId: id,

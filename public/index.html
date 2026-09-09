@@ -311,6 +311,7 @@ const UI = {
     add:"Add", evidence:"Evidence", noEvidenceYet:"No evidence recorded.", evidencePlaceholder:"Evidence description (e.g. photo of hand pump)",
     auditHistory:"Audit history", askPlaceholder:"Ask GovernIQ about these cases...", ask:"Ask", thinking:"Thinking...",
     answer:"Answer", couldNotReach:"Could not reach GovernIQ right now.", citizenName:"Citizen name", contactNumber:"Contact number",
+    intakeHelp:"Paste the complaint as received, in plain language. AI will suggest a title, category, and likely department — you review everything before it becomes an official case.",
     title:"Title", descriptionAsReceived:"Description (as received)", saveDraft:"Save draft", saving:"Saving...",
     couldNotSave:"Could not save — check your connection and try again.", couldNotClassify:"Could not classify right now.",
     couldNotApprove:"Could not approve — check your connection and try again.", couldNotSendBack:"Could not send back — check your connection and try again.",
@@ -792,6 +793,8 @@ function applyServerGrievance(g, data) {
   // grievance object (camelCase) — used both when opening a case and after
   // every workflow action, so the UI always reflects what's actually in D1.
   g.status = data.status;
+  g.title = data.title || g.title;
+  g.locationText = data.location_text != null ? data.location_text : g.locationText;
   g.category = data.category;
   g.priority = data.priority;
   g.responsibleAuthority = data.responsible_authority;
@@ -1333,17 +1336,15 @@ function renderNewForm() {
     <div class="back-link" id="backToList">&larr; ${t("backToList")}</div>
     <div class="section-title">${t("fileNewGrievance")}</div>
     <div class="panel">
+      <div style="font-size:12.5px;color:var(--slate);margin-bottom:10px;">${t("intakeHelp")}</div>
       <label class="field-row lbl">${t("citizenName")}</label>
       <input class="f" id="fName" value="${t("exampleCitizenName")}" />
       <label class="field-row lbl">${t("contactNumber")}</label>
       <input class="f" id="fContact" value="${t("exampleContact")}" />
-      <label class="field-row lbl">${t("title")}</label>
-      <input class="f" id="fTitle" value="${t("exampleTitle")}" />
       <label class="field-row lbl">${t("descriptionAsReceived")}</label>
-      <textarea class="f" id="fDesc">${t("exampleDesc")}</textarea>
-      <label class="field-row lbl">${t("location")}</label>
-      <input class="f" id="fLoc" value="${t("exampleLoc")}" />
-      <div class="btn-row"><button class="btn primary" id="saveDraftBtn">${t("saveDraft")}</button></div>
+      <textarea class="f" id="fDesc" style="min-height:110px;">${t("exampleDesc")}</textarea>
+      <div class="btn-row"><button class="btn primary" id="classifyNewBtn">${t("classifyBtn")}</button></div>
+      <div id="classifyNewResult"></div>
     </div>
   `;
 }
@@ -1507,42 +1508,59 @@ function attachAppHandlers() {
   const newBtn = document.getElementById("newCaseBtn");
   if (newBtn) newBtn.addEventListener("click", () => { currentView = "NEW"; render(); });
 
-  const saveDraftBtn = document.getElementById("saveDraftBtn");
-  if (saveDraftBtn) saveDraftBtn.addEventListener("click", async () => {
-    const payload = {
-      title: document.getElementById("fTitle").value,
-      description: document.getElementById("fDesc").value,
-      locationText: document.getElementById("fLoc").value,
-      citizenName: document.getElementById("fName").value,
-      citizenContact: document.getElementById("fContact").value,
-      // createdBy is no longer sent — the server derives it from the
-      // verified Access session instead of trusting a client-supplied value.
-    };
-    const saveBtnEl = document.getElementById("saveDraftBtn");
-    saveBtnEl.disabled = true;
-    saveBtnEl.textContent = t("saving");
+  const classifyNewBtn = document.getElementById("classifyNewBtn");
+  if (classifyNewBtn) classifyNewBtn.addEventListener("click", async () => {
+    const citizenName = document.getElementById("fName").value.trim();
+    const citizenContact = document.getElementById("fContact").value.trim();
+    const description = document.getElementById("fDesc").value.trim();
+    const resultEl = document.getElementById("classifyNewResult");
+    if (!citizenName || !citizenContact || !description) {
+      resultEl.innerHTML = `<div style="color:var(--brick);margin-top:8px;">${t("couldNotSave")}</div>`;
+      return;
+    }
+    classifyNewBtn.disabled = true;
+    classifyNewBtn.textContent = t("saving");
+    resultEl.innerHTML = "";
     try {
-      const res = await fetch("/api/grievances", {
+      // Step 1: create the DRAFT record — title is left for the AI to fill
+      // in a moment later, per the new single-box intake design.
+      const createRes = await fetch("/api/grievances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ description, citizenName, citizenContact }),
       });
-      const created = await res.json();
+      const created = await createRes.json();
+      if (created.error) throw new Error(created.error);
+
       const g = {
-        id: created.id, displayId: null, status: created.status,
-        title: payload.title, description: payload.description, locationText: payload.locationText,
-        citizenName: payload.citizenName, citizenContact: payload.citizenContact,
+        id: created.id, displayId: null, status: "DRAFT",
+        title: created.title, description, locationText: null,
+        citizenName, citizenContact,
         category: null, priority: null, responsibleAuthority: null,
         aiSuggestion: null, assignedTo: null, tasks: [], evidence: [],
         audit: [],
       };
       addAudit(g, "CREATED", "Draft saved by field intake — persisted to database");
       grievances.unshift(g);
+
+      // Step 2: classify immediately — same server-side redaction and AI
+      // call the old two-step flow always used, just chained automatically
+      // instead of waiting for a second button press.
+      classifyNewBtn.textContent = t("thinking");
+      const classifyRes = await fetch("/api/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: g.id, description, citizenName, citizenContact }),
+      });
+      const out = await classifyRes.json();
+      if (out.error) throw new Error(out.error);
+      applyServerGrievance(g, out);
+
       currentCaseId = g.id; currentView = "DETAIL"; render();
     } catch (e) {
-      saveBtnEl.disabled = false;
-      saveBtnEl.textContent = t("saveDraft");
-      alert(t("couldNotSave"));
+      classifyNewBtn.disabled = false;
+      classifyNewBtn.textContent = t("classifyBtn");
+      resultEl.innerHTML = `<div style="color:var(--brick);margin-top:8px;">${t("couldNotClassify")}</div>`;
     }
   });
 
@@ -1555,7 +1573,7 @@ function attachAppHandlers() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: g.id, title: g.title, description: g.description, locationText: g.locationText,
+          id: g.id, description: g.description, locationText: g.locationText,
           citizenName: g.citizenName, citizenContact: g.citizenContact,
         }),
       });

@@ -1056,9 +1056,9 @@ function ageDays(dateTimeStr) {
   return Math.floor((Date.now() - created.getTime()) / 86400000);
 }
 function dueText(d) {
-  if (d < 0) return `${t("overdue")} ${Math.abs(d)} ${t("days")}`;
+  if (d < 0) return `${t("overdue")} <bdi>${Math.abs(d)}</bdi> ${t("days")}`;
   if (d === 0) return t("dueToday");
-  return `${t("dueIn")} ${d} ${t("days")}`;
+  return `${t("dueIn")} <bdi>${d}</bdi> ${t("days")}`;
 }
 
 // Everything below is computed directly from real fields already in D1 —
@@ -1080,7 +1080,7 @@ function buildIntelligenceItems() {
     if (g.priority === "CRITICAL" || g.priority === "HIGH") {
       const age = ageDays(g.createdAt);
       items.push({ tagLabel: t("tagUrgent"), tagClass: "critical", title: g.title, meta: g.displayId,
-        why: `${prettyStatus(g.priority)} ${t("priority")}${age != null ? " · " + t("openFor") + " " + age + " " + t("days") : ""}`,
+        why: `${prettyStatus(g.priority)} ${t("priority")}${age != null ? " · " + t("openFor") + " <bdi>" + age + "</bdi> " + t("days") : ""}`,
         action: t("actionFollowUpDept"), rank: g.priority === "CRITICAL" ? 1 : 2 });
     }
   });
@@ -1088,7 +1088,7 @@ function buildIntelligenceItems() {
   projects.forEach(p => {
     if (p.status === "AT_RISK" || p.status === "DELAYED") {
       items.push({ tagLabel: t("tagWatch"), tagClass: "pending", title: p.title, meta: p.department || "",
-        why: `${prettyStatus(p.status)}${p.sanctioned_date ? " · " + t("sanctioned") + " " + p.sanctioned_date : ""}`,
+        why: `${prettyStatus(p.status)}${p.sanctioned_date ? " · " + t("sanctioned") + " <bdi>" + p.sanctioned_date + "</bdi>" : ""}`,
         action: t("actionRequestUpdate"), rank: p.status === "AT_RISK" ? 2 : 3 });
     }
   });

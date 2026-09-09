@@ -691,6 +691,7 @@ let commitments = [];
 let activity = [];
 let currentView = "MY_DAY";
 let currentCaseId = null;
+let currentEntityId = null;
 let idCounter = 1000;
 
 // Mirrors functions/_shared/permissions.js OFFICE_RECORD_MANAGERS. Same
@@ -710,9 +711,9 @@ const NAV_ITEMS = [
 ];
 function navGroupFor(view) {
   if (["LIST", "DETAIL", "NEW"].includes(view)) return "LIST";
-  if (["PROJECTS", "PROJECT_NEW"].includes(view)) return "PROJECTS";
-  if (["DOCUMENTS", "DOCUMENT_NEW"].includes(view)) return "DOCUMENTS";
-  if (["COMMITMENTS", "COMMITMENT_NEW"].includes(view)) return "COMMITMENTS";
+  if (["PROJECTS", "PROJECT_NEW", "PROJECT_DETAIL"].includes(view)) return "PROJECTS";
+  if (["DOCUMENTS", "DOCUMENT_NEW", "DOCUMENT_DETAIL"].includes(view)) return "DOCUMENTS";
+  if (["COMMITMENTS", "COMMITMENT_NEW", "COMMITMENT_DETAIL"].includes(view)) return "COMMITMENTS";
   return "MY_DAY";
 }
 
@@ -899,10 +900,13 @@ function renderApp() {
         currentView === "DETAIL" ? renderDetail() :
         currentView === "PROJECTS" ? renderProjects() :
         currentView === "PROJECT_NEW" ? renderProjectForm() :
+        currentView === "PROJECT_DETAIL" ? renderProjectDetail() :
         currentView === "DOCUMENTS" ? renderDocuments() :
         currentView === "DOCUMENT_NEW" ? renderDocumentForm() :
+        currentView === "DOCUMENT_DETAIL" ? renderDocumentDetail() :
         currentView === "COMMITMENTS" ? renderCommitments() :
         currentView === "COMMITMENT_NEW" ? renderCommitmentForm() :
+        currentView === "COMMITMENT_DETAIL" ? renderCommitmentDetail() :
         renderDetail()
       }<div class="footer-credit">${t("builtBy")}</div></div>
     </div>
@@ -924,7 +928,7 @@ function renderProjects() {
       <button class="btn primary" id="newProjectBtn" ${canManage ? "" : "disabled"}>${t("newProject")}</button>
     </div>
     ${projects.length === 0 ? `<div class="empty">${t("noProjectsYet")}</div>` : projects.map(p => `
-      <div class="card st-${projectStatusTagClass(p.status)}">
+      <div class="card st-${projectStatusTagClass(p.status)}" data-open-project="${p.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div>
             <div class="card-title"><bdi>${p.title}</bdi></div>
@@ -958,6 +962,41 @@ function renderProjectForm() {
     </div>
   `;
 }
+function renderProjectDetail() {
+  const p = projects.find(x => x.id === currentEntityId);
+  if (!p) return `<div class="empty">${t("caseNotFound")}</div>`;
+  const canManage = canManageOfficeRecords(session.role);
+  return `
+    <div class="back-link" id="backToProjects">&larr; ${t("backToList")}</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span><bdi>${p.title}</bdi></span><span class="tag ${projectStatusTagClass(p.status)}">${prettyStatus(p.status)}</span>
+    </div>
+    <div class="panel">
+      <label class="field-row lbl">${t("title")}</label>
+      <input class="f" id="pdTitle" value="${p.title.replace(/"/g, "&quot;")}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("description")}</label>
+      <textarea class="f" id="pdDesc" ${canManage ? "" : "disabled"}>${p.description || ""}</textarea>
+      <label class="field-row lbl">${t("department")}</label>
+      <input class="f" id="pdDept" value="${(p.department || "").replace(/"/g, "&quot;")}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("location")}</label>
+      <input class="f" id="pdLoc" value="${(p.location_text || "").replace(/"/g, "&quot;")}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("sanctionedDate")}</label>
+      <input class="f" id="pdDate" type="date" value="${p.sanctioned_date || ""}" ${canManage ? "" : "disabled"} />
+      ${canManage ? `<div class="btn-row"><button class="btn primary" id="savePDetailBtn" data-id="${p.id}">${t("save")}</button></div>` : ""}
+    </div>
+    ${canManage ? `
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">${t("status")}</div>
+        <div class="btn-row">${["PLANNED", "IN_PROGRESS", "AT_RISK", "DELAYED", "COMPLETED"].filter(s => s !== p.status).map(s =>
+          `<button class="btn projectStatusBtn" data-id="${p.id}" data-status="${s}">${prettyStatus(s)}</button>`).join("")}</div>
+      </div>` : ""}
+    <div class="panel">
+      <div class="section-title" style="margin-top:0;">${t("auditHistory")}</div>
+      ${(p.audit || []).length === 0 ? `<div class="empty">${t("noRecentActivity")}</div>` :
+        p.audit.map(a => `<div class="audit-item"><bdi><b>${a.action}</b> — ${a.actor} · ${a.at}${a.detail ? " — " + a.detail : ""}</bdi></div>`).join("")}
+    </div>
+  `;
+}
 
 // =====================================================================
 // DOCUMENTS
@@ -970,7 +1009,7 @@ function renderDocuments() {
       <button class="btn primary" id="newDocumentBtn" ${canManage ? "" : "disabled"}>${t("newDocument")}</button>
     </div>
     ${documents.length === 0 ? `<div class="empty">${t("noDocumentsYet")}</div>` : documents.map(d => `
-      <div class="card">
+      <div class="card" data-open-document="${d.id}">
         <div class="card-title"><bdi>${d.title}</bdi></div>
         <div class="card-meta"><bdi>${[d.source_department, d.doc_type, d.received_date].filter(Boolean).join(" · ")}</bdi></div>
         ${d.summary ? `<div class="why"><bdi>${d.summary}</bdi></div>` : ""}
@@ -997,6 +1036,33 @@ function renderDocumentForm() {
     </div>
   `;
 }
+function renderDocumentDetail() {
+  const d = documents.find(x => x.id === currentEntityId);
+  if (!d) return `<div class="empty">${t("caseNotFound")}</div>`;
+  const canManage = canManageOfficeRecords(session.role);
+  return `
+    <div class="back-link" id="backToDocuments">&larr; ${t("backToList")}</div>
+    <div class="section-title"><bdi>${d.title}</bdi></div>
+    <div class="panel">
+      <label class="field-row lbl">${t("title")}</label>
+      <input class="f" id="ddTitle" value="${d.title.replace(/"/g, "&quot;")}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("sourceDepartment")}</label>
+      <input class="f" id="ddDept" value="${(d.source_department || "").replace(/"/g, "&quot;")}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("docType")}</label>
+      <input class="f" id="ddType" value="${(d.doc_type || "").replace(/"/g, "&quot;")}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("receivedDate")}</label>
+      <input class="f" id="ddDate" type="date" value="${d.received_date || ""}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("summary")}</label>
+      <textarea class="f" id="ddSummary" ${canManage ? "" : "disabled"}>${d.summary || ""}</textarea>
+      ${canManage ? `<div class="btn-row"><button class="btn primary" id="saveDDetailBtn" data-id="${d.id}">${t("save")}</button></div>` : ""}
+    </div>
+    <div class="panel">
+      <div class="section-title" style="margin-top:0;">${t("auditHistory")}</div>
+      ${(d.audit || []).length === 0 ? `<div class="empty">${t("noRecentActivity")}</div>` :
+        d.audit.map(a => `<div class="audit-item"><bdi><b>${a.action}</b> — ${a.actor} · ${a.at}${a.detail ? " — " + a.detail : ""}</bdi></div>`).join("")}
+    </div>
+  `;
+}
 
 // =====================================================================
 // COMMITMENTS
@@ -1013,7 +1079,7 @@ function renderCommitments() {
       <button class="btn primary" id="newCommitmentBtn" ${canManage ? "" : "disabled"}>${t("newCommitment")}</button>
     </div>
     ${sorted.length === 0 ? `<div class="empty">${t("noCommitmentsYet")}</div>` : sorted.map(c => `
-      <div class="card">
+      <div class="card" data-open-commitment="${c.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div>
             <div class="card-title"><bdi>${c.title}</bdi></div>
@@ -1039,6 +1105,34 @@ function renderCommitmentForm() {
       <label class="field-row lbl">${t("dueDate")}</label>
       <input class="f" id="cDue" type="date" />
       <div class="btn-row"><button class="btn primary" id="saveCommitmentBtn">${t("save")}</button></div>
+    </div>
+  `;
+}
+function renderCommitmentDetail() {
+  const c = commitments.find(x => x.id === currentEntityId);
+  if (!c) return `<div class="empty">${t("caseNotFound")}</div>`;
+  const canManage = canManageOfficeRecords(session.role);
+  return `
+    <div class="back-link" id="backToCommitments">&larr; ${t("backToList")}</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span><bdi>${c.title}</bdi></span><span class="tag ${commitmentStatusTagClass(c.status)}">${prettyStatus(c.status)}</span>
+    </div>
+    <div class="panel">
+      <label class="field-row lbl">${t("title")}</label>
+      <input class="f" id="cdTitle" value="${c.title.replace(/"/g, "&quot;")}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("description")}</label>
+      <textarea class="f" id="cdDesc" ${canManage ? "" : "disabled"}>${c.description || ""}</textarea>
+      <label class="field-row lbl">${t("dueDate")}</label>
+      <input class="f" id="cdDue" type="date" value="${c.due_date || ""}" ${canManage ? "" : "disabled"} />
+      ${canManage ? `<div class="btn-row">
+        <button class="btn primary" id="saveCDetailBtn" data-id="${c.id}">${t("save")}</button>
+        ${c.status !== "DONE" ? `<button class="btn commitmentDoneBtn" data-id="${c.id}">${t("markDone")}</button>` : ""}
+      </div>` : ""}
+    </div>
+    <div class="panel">
+      <div class="section-title" style="margin-top:0;">${t("auditHistory")}</div>
+      ${(c.audit || []).length === 0 ? `<div class="empty">${t("noRecentActivity")}</div>` :
+        c.audit.map(a => `<div class="audit-item"><bdi><b>${a.action}</b> — ${a.actor} · ${a.at}${a.detail ? " — " + a.detail : ""}</bdi></div>`).join("")}
     </div>
   `;
 }
@@ -1683,18 +1777,51 @@ function attachAppHandlers() {
       alert(t("couldNotSave"));
     }
   });
-  document.querySelectorAll(".projectStatusBtn").forEach(b => b.addEventListener("click", async () => {
+  document.querySelectorAll(".projectStatusBtn").forEach(b => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
     if (!canManageOfficeRecords(session.role)) return;
     try {
       const res = await fetch(`/api/projects/${b.dataset.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: b.dataset.status }),
+        body: JSON.stringify({ action: "STATUS_CHANGE", status: b.dataset.status }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       await loadProjects(); render();
     } catch (e) { alert(t("couldNotUpdateStatus")); }
   }));
+  document.querySelectorAll("[data-open-project]").forEach(el => el.addEventListener("click", async () => {
+    currentEntityId = el.dataset.openProject; currentView = "PROJECT_DETAIL"; render();
+    try {
+      const res = await fetch(`/api/projects/${currentEntityId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const idx = projects.findIndex(x => x.id === currentEntityId);
+      if (idx >= 0) projects[idx] = data; render();
+    } catch (e) { /* keep showing cached list data */ }
+  }));
+  const savePDetailBtn = document.getElementById("savePDetailBtn");
+  if (savePDetailBtn) savePDetailBtn.addEventListener("click", async () => {
+    const title = document.getElementById("pdTitle").value.trim();
+    if (!title) return;
+    try {
+      const res = await fetch(`/api/projects/${savePDetailBtn.dataset.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "EDIT", title,
+          description: document.getElementById("pdDesc").value,
+          department: document.getElementById("pdDept").value,
+          locationText: document.getElementById("pdLoc").value,
+          sanctionedDate: document.getElementById("pdDate").value || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const idx = projects.findIndex(x => x.id === savePDetailBtn.dataset.id);
+      if (idx >= 0) projects[idx] = data;
+      render();
+    } catch (e) { alert(t("couldNotSave")); }
+  });
 
   // ---- DOCUMENTS ----
   const newDocumentBtn = document.getElementById("newDocumentBtn");
@@ -1725,6 +1852,38 @@ function attachAppHandlers() {
       alert(t("couldNotSave"));
     }
   });
+  document.querySelectorAll("[data-open-document]").forEach(el => el.addEventListener("click", async () => {
+    currentEntityId = el.dataset.openDocument; currentView = "DOCUMENT_DETAIL"; render();
+    try {
+      const res = await fetch(`/api/documents/${currentEntityId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const idx = documents.findIndex(x => x.id === currentEntityId);
+      if (idx >= 0) documents[idx] = data; render();
+    } catch (e) { /* keep showing cached list data */ }
+  }));
+  const saveDDetailBtn = document.getElementById("saveDDetailBtn");
+  if (saveDDetailBtn) saveDDetailBtn.addEventListener("click", async () => {
+    const title = document.getElementById("ddTitle").value.trim();
+    if (!title) return;
+    try {
+      const res = await fetch(`/api/documents/${saveDDetailBtn.dataset.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "EDIT", title,
+          sourceDepartment: document.getElementById("ddDept").value,
+          docType: document.getElementById("ddType").value,
+          receivedDate: document.getElementById("ddDate").value || null,
+          summary: document.getElementById("ddSummary").value,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const idx = documents.findIndex(x => x.id === saveDDetailBtn.dataset.id);
+      if (idx >= 0) documents[idx] = data;
+      render();
+    } catch (e) { alert(t("couldNotSave")); }
+  });
 
   // ---- COMMITMENTS ----
   const newCommitmentBtn = document.getElementById("newCommitmentBtn");
@@ -1753,7 +1912,8 @@ function attachAppHandlers() {
       alert(t("couldNotSave"));
     }
   });
-  document.querySelectorAll(".commitmentDoneBtn").forEach(b => b.addEventListener("click", async () => {
+  document.querySelectorAll(".commitmentDoneBtn").forEach(b => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
     if (!canManageOfficeRecords(session.role)) return;
     try {
       const res = await fetch(`/api/commitments/${b.dataset.id}`, {
@@ -1765,6 +1925,36 @@ function attachAppHandlers() {
       await loadCommitments(); render();
     } catch (e) { alert(t("couldNotUpdateStatus")); }
   }));
+  document.querySelectorAll("[data-open-commitment]").forEach(el => el.addEventListener("click", async () => {
+    currentEntityId = el.dataset.openCommitment; currentView = "COMMITMENT_DETAIL"; render();
+    try {
+      const res = await fetch(`/api/commitments/${currentEntityId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const idx = commitments.findIndex(x => x.id === currentEntityId);
+      if (idx >= 0) commitments[idx] = data; render();
+    } catch (e) { /* keep showing cached list data */ }
+  }));
+  const saveCDetailBtn = document.getElementById("saveCDetailBtn");
+  if (saveCDetailBtn) saveCDetailBtn.addEventListener("click", async () => {
+    const title = document.getElementById("cdTitle").value.trim();
+    if (!title) return;
+    try {
+      const res = await fetch(`/api/commitments/${saveCDetailBtn.dataset.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "EDIT", title,
+          description: document.getElementById("cdDesc").value,
+          dueDate: document.getElementById("cdDue").value || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const idx = commitments.findIndex(x => x.id === saveCDetailBtn.dataset.id);
+      if (idx >= 0) commitments[idx] = data;
+      render();
+    } catch (e) { alert(t("couldNotSave")); }
+  });
 
   document.getElementById("askBtn").addEventListener("click", async () => {
     const q = document.getElementById("askInput").value.trim();

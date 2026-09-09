@@ -1,11 +1,20 @@
 // functions/api/grievances/[id].js
 //
 // Single-grievance detail (with a REAL audit trail) and the status-workflow
-// actions: approve, reject, assign, status change, verify, close. Every
-// action is permission-checked against the caller's server-verified role
-// and persists to D1. APPROVE reads the AI suggestion that classification
-// already stored server-side (ai_suggestion column) rather than trusting
-// category/authority values sent by the browser at approval time.
+// actions: approve, reject, assign, status change, verify, close, and now
+// edit. Every action is permission-checked against the caller's
+// server-verified role and persists to D1. APPROVE reads the AI suggestion
+// that classification already stored server-side (ai_suggestion column)
+// rather than trusting category/authority values sent by the browser at
+// approval time.
+//
+// UPDATED: added an EDIT action so a typo in title/description/location
+// (or citizen name/contact, for roles with Sensitive Data Access) made at
+// intake can actually be corrected — previously grievances were the one
+// entity in the app with no edit path at all, unlike Projects/Documents/
+// Commitments. Citizen name/contact can only be changed by a caller whose
+// REAL role has SENSITIVE_DATA_ACCESS — checked server-side, never trusting
+// which inputs the browser chose to show.
 
 import { getVerifiedUser } from "../../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../../_shared/permissions.js";
@@ -131,6 +140,28 @@ export async function onRequestPatch(context) {
     if (!isValidTransition(row.status, "CLOSED")) return Response.json({ error: "INVALID_TRANSITION" }, { status: 409 });
     await env.DB.prepare(`UPDATE grievances SET status='CLOSED', updated_at=datetime('now') WHERE id=?`).bind(id).run();
     await recordAudit(env, { grievanceId: id, action: "CLOSED", detail: "Case closed", ...actorMeta });
+
+  } else if (action === "EDIT") {
+    if (!hasPermission(role, "EDIT")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+
+    const title = (body.title || "").trim();
+    const description = (body.description || "").trim();
+    if (!title || !description) {
+      return Response.json({ error: "VALIDATION_ERROR", message: "title and description are required" }, { status: 400 });
+    }
+
+    // Citizen name/contact can only be changed by a caller whose REAL role
+    // has SENSITIVE_DATA_ACCESS — checked here server-side, not just by
+    // whether the frontend happened to show those inputs. Anyone else's
+    // edit leaves the existing stored values untouched.
+    const canEditSensitive = hasPermission(role, "SENSITIVE_DATA_ACCESS");
+    const citizenName = canEditSensitive && body.citizenName !== undefined ? body.citizenName : row.citizen_name;
+    const citizenContact = canEditSensitive && body.citizenContact !== undefined ? body.citizenContact : row.citizen_contact;
+
+    await env.DB.prepare(
+      `UPDATE grievances SET title=?, description=?, location_text=?, citizen_name=?, citizen_contact=?, updated_at=datetime('now') WHERE id=?`
+    ).bind(title, description, body.locationText || null, citizenName, citizenContact, id).run();
+    await recordAudit(env, { grievanceId: id, action: "EDITED", detail: "Case details corrected", ...actorMeta });
 
   } else {
     return Response.json({ error: "UNKNOWN_ACTION" }, { status: 400 });

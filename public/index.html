@@ -794,6 +794,7 @@ function applyServerGrievance(g, data) {
   // every workflow action, so the UI always reflects what's actually in D1.
   g.status = data.status;
   g.title = data.title || g.title;
+  g.description = data.description || g.description;
   g.locationText = data.location_text != null ? data.location_text : g.locationText;
   g.category = data.category;
   g.priority = data.priority;
@@ -1367,9 +1368,25 @@ function renderDetail() {
 
     <div class="panel">
       <div class="field-row"><span class="lbl">${t("caseId")}</span><bdi>${g.displayId || t("draftNotOfficial")}</bdi></div>
-      <div class="field-row"><span class="lbl">${t("description")}</span><bdi>${g.description}</bdi></div>
-      <div class="field-row"><span class="lbl">${t("location")}</span><bdi>${g.locationText}</bdi></div>
-      <div class="field-row"><span class="lbl">${t("citizen")}</span>${canSeeSensitive ? `<bdi>${g.citizenName} · ${g.citizenContact}</bdi>` : `<span class="redacted">${t("hiddenSensitive")}</span>`}</div>
+      ${canEdit ? `
+        <label class="field-row lbl">${t("title")}</label>
+        <input class="f" id="gdTitle" value="${g.title.replace(/"/g, "&quot;")}" />
+        <label class="field-row lbl">${t("description")}</label>
+        <textarea class="f" id="gdDesc">${g.description}</textarea>
+        <label class="field-row lbl">${t("location")}</label>
+        <input class="f" id="gdLoc" value="${(g.locationText || "").replace(/"/g, "&quot;")}" />
+        ${canSeeSensitive ? `
+          <label class="field-row lbl">${t("citizenName")}</label>
+          <input class="f" id="gdCitizenName" value="${(g.citizenName || "").replace(/"/g, "&quot;")}" />
+          <label class="field-row lbl">${t("contactNumber")}</label>
+          <input class="f" id="gdCitizenContact" value="${(g.citizenContact || "").replace(/"/g, "&quot;")}" />
+        ` : `<div class="field-row"><span class="lbl">${t("citizen")}</span><span class="redacted">${t("hiddenSensitive")}</span></div>`}
+        <div class="btn-row"><button class="btn primary" id="saveGDetailBtn" data-id="${g.id}">${t("save")}</button></div>
+      ` : `
+        <div class="field-row"><span class="lbl">${t("description")}</span><bdi>${g.description}</bdi></div>
+        <div class="field-row"><span class="lbl">${t("location")}</span><bdi>${g.locationText}</bdi></div>
+        <div class="field-row"><span class="lbl">${t("citizen")}</span>${canSeeSensitive ? `<bdi>${g.citizenName} · ${g.citizenContact}</bdi>` : `<span class="redacted">${t("hiddenSensitive")}</span>`}</div>
+      `}
       ${g.category ? `<div class="field-row"><span class="lbl">${t("category")}</span><bdi>${g.category}</bdi></div>` : ""}
       ${g.responsibleAuthority ? `<div class="field-row"><span class="lbl">${t("responsibleAuthority")}</span><bdi>${g.responsibleAuthority}</bdi></div>` : ""}
       ${g.assignedTo ? `<div class="field-row"><span class="lbl">${t("assignedTo")}</span><bdi>${g.assignedTo}</bdi></div>` : ""}
@@ -1507,6 +1524,44 @@ function attachAppHandlers() {
 
   const newBtn = document.getElementById("newCaseBtn");
   if (newBtn) newBtn.addEventListener("click", () => { currentView = "NEW"; render(); });
+
+  const saveGDetailBtn = document.getElementById("saveGDetailBtn");
+  if (saveGDetailBtn) saveGDetailBtn.addEventListener("click", async () => {
+    const g = grievances.find(x => x.id === saveGDetailBtn.dataset.id);
+    if (!g) return;
+    const title = document.getElementById("gdTitle").value.trim();
+    const description = document.getElementById("gdDesc").value.trim();
+    if (!title || !description) { alert(t("couldNotSave")); return; }
+    const payload = {
+      action: "EDIT", title, description,
+      locationText: document.getElementById("gdLoc").value,
+    };
+    // Citizen name/contact inputs only exist in the DOM for roles with
+    // Sensitive Data Access — the server independently re-checks this
+    // permission regardless of what this payload contains.
+    const nameEl = document.getElementById("gdCitizenName");
+    const contactEl = document.getElementById("gdCitizenContact");
+    if (nameEl) payload.citizenName = nameEl.value;
+    if (contactEl) payload.citizenContact = contactEl.value;
+
+    saveGDetailBtn.disabled = true;
+    saveGDetailBtn.textContent = t("saving");
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      saveGDetailBtn.disabled = false;
+      saveGDetailBtn.textContent = t("save");
+      alert(t("couldNotSave"));
+    }
+  });
 
   const classifyNewBtn = document.getElementById("classifyNewBtn");
   if (classifyNewBtn) classifyNewBtn.addEventListener("click", async () => {

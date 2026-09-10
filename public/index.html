@@ -320,6 +320,7 @@ const UI = {
     auditHistory:"Audit history", askPlaceholder:"Ask GovernIQ about these cases...", ask:"Ask", thinking:"Thinking...",
     answer:"Answer", couldNotReach:"Could not reach GovernIQ right now.", citizenName:"Citizen name", contactNumber:"Contact number",
     intakeHelp:"Paste the complaint as received, in plain language. AI will suggest a title, category, and likely department — you review everything before it becomes an official case.",
+    selectAssignee:"Select assignee", linkedGrievance:"Linked grievance", noneOption:"None",
     title:"Title", descriptionAsReceived:"Description (as received)", saveDraft:"Save draft", saving:"Saving...",
     couldNotSave:"Could not save — check your connection and try again.", couldNotClassify:"Could not classify right now.",
     couldNotApprove:"Could not approve — check your connection and try again.", couldNotSendBack:"Could not send back — check your connection and try again.",
@@ -386,7 +387,8 @@ const UI = {
     actionSendFollowUp:"इस प्रतिबद्धता पर फॉलो-अप भेजें।", recentlyLogged:"हाल ही में दर्ज — कोई सारांश उपलब्ध नहीं।",
     actionReviewDocument:"समीक्षा करें और आवश्यकता होने पर फॉलो-अप सौंपें।", tagUrgent:"अत्यावश्यक", tagWatch:"नज़र रखें",
     tagFollowup:"फॉलो-अप", tagTodo:"समीक्षा हेतु", whyItMatters:"यह क्यों महत्वपूर्ण है", whatsMissing:"क्या जानकारी अनुपलब्ध है",
-    recommendedNextStep:"अनुशंसित अगला कदम"
+    recommendedNextStep:"अनुशंसित अगला कदम",
+    intakeHelp:"प्राप्त शिकायत को सरल भाषा में यहाँ दर्ज करें। एआई एक शीर्षक, श्रेणी और संभावित विभाग सुझाएगा — आधिकारिक मामला बनने से पहले आप सब कुछ समीक्षा करेंगे।", selectAssignee:"सौंपे जाने वाले व्यक्ति को चुनें", linkedGrievance:"जुड़ी हुई शिकायत", noneOption:"कोई नहीं",
   },
   bn: {
     appName:"GovernIQ", verifying:"আপনার সেশন যাচাই করা হচ্ছে…", notProvisioned:"আপনার অ্যাকাউন্ট সাইন ইন করা আছে কিন্তু GovernIQ-এর জন্য এখনও সেট আপ করা হয়নি। আপনার ইমেল যোগ করতে আপনার প্রশাসকের সাথে যোগাযোগ করুন।",
@@ -432,7 +434,8 @@ const UI = {
     actionSendFollowUp:"এই প্রতিশ্রুতি সম্পর্কে একটি ফলো-আপ পাঠান।", recentlyLogged:"সম্প্রতি লগ করা হয়েছে — কোনো সারসংক্ষেপ দেওয়া হয়নি।",
     actionReviewDocument:"পর্যালোচনা করুন এবং প্রয়োজনে ফলো-আপ বরাদ্দ করুন।", tagUrgent:"জরুরি", tagWatch:"নজরে রাখুন",
     tagFollowup:"ফলো-আপ", tagTodo:"পর্যালোচনার জন্য", whyItMatters:"এটি কেন গুরুত্বপূর্ণ", whatsMissing:"কী তথ্যের অভাব আছে",
-    recommendedNextStep:"প্রস্তাবিত পরবর্তী পদক্ষেপ"
+    recommendedNextStep:"প্রস্তাবিত পরবর্তী পদক্ষেপ",
+    intakeHelp:"প্রাপ্ত অভিযোগ সরল ভাষায় এখানে লিখুন। এআই একটি শিরোনাম, বিভাগ এবং সম্ভাব্য দপ্তর প্রস্তাব করবে — এটি আনুষ্ঠানিক মামলা হওয়ার আগে আপনি সবকিছু পর্যালোচনা করবেন।", selectAssignee:"বরাদ্দপ্রাপ্ত নির্বাচন করুন", linkedGrievance:"সংযুক্ত অভিযোগ", noneOption:"কোনোটি নয়",
   },
   ta: {
     appName:"GovernIQ", verifying:"உங்கள் அமர்வு சரிபார்க்கப்படுகிறது…", notProvisioned:"உங்கள் கணக்கு உள்நுழைந்துள்ளது ஆனால் GovernIQ-க்காக இன்னும் அமைக்கப்படவில்லை. உங்கள் மின்னஞ்சலைச் சேர்க்க உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும்.",
@@ -481,7 +484,8 @@ const UI = {
     actionSendFollowUp:"இந்த உறுதிமொழி குறித்து பின்தொடர்தல் அனுப்பவும்.", recentlyLogged:"சமீபத்தில் பதிவு செய்யப்பட்டது — சுருக்கம் வழங்கப்படவில்லை.",
     actionReviewDocument:"மதிப்பாய்வு செய்து தேவைப்பட்டால் பின்தொடர்தலை ஒதுக்கவும்.", tagUrgent:"அவசரம்", tagWatch:"கவனிக்கவும்",
     tagFollowup:"பின்தொடர்தல்", tagTodo:"மதிப்பாய்வு செய்ய", whyItMatters:"இது ஏன் முக்கியம்", whatsMissing:"என்ன தகவல் இல்லை",
-    recommendedNextStep:"பரிந்துரைக்கப்பட்ட அடுத்த படி"
+    recommendedNextStep:"பரிந்துரைக்கப்பட்ட அடுத்த படி",
+    intakeHelp:"பெறப்பட்ட புகாரை எளிய மொழியில் இங்கே பதிவு செய்யவும். AI ஒரு தலைப்பு, வகை மற்றும் சாத்தியமான துறையை பரிந்துரைக்கும் — இது உத்தியோகபூர்வ வழக்காக மாறுவதற்கு முன் நீங்கள் அனைத்தையும் மதிப்பாய்வு செய்வீர்கள்.", selectAssignee:"ஒதுக்கப்படுபவரைத் தேர்ந்தெடுக்கவும்", linkedGrievance:"இணைக்கப்பட்ட புகார்", noneOption:"எதுவும் இல்லை",
   },
   es: {
     appName:"GovernIQ", verifying:"Verificando su sesión…", notProvisioned:"Su cuenta ha iniciado sesión pero aún no está configurada para GovernIQ. Contacte a su administrador para que agregue su correo electrónico.",
@@ -528,7 +532,8 @@ const UI = {
     actionRequestUpdate:"Solicite una actualización de estado al departamento.", actionSendFollowUp:"Envíe un seguimiento sobre este compromiso.",
     recentlyLogged:"Registrado recientemente — no se proporcionó resumen.", actionReviewDocument:"Revise y asigne seguimiento si es necesario.",
     tagUrgent:"URGENTE", tagWatch:"VIGILAR", tagFollowup:"SEGUIMIENTO", tagTodo:"POR REVISAR", whyItMatters:"Por qué importa",
-    whatsMissing:"Qué falta", recommendedNextStep:"Próximo paso recomendado"
+    whatsMissing:"Qué falta", recommendedNextStep:"Próximo paso recomendado",
+    intakeHelp:"Pegue la queja tal como se recibió, en lenguaje sencillo. La IA sugerirá un título, categoría y departamento probable — usted revisa todo antes de que se convierta en un caso oficial.", selectAssignee:"Seleccionar asignado", linkedGrievance:"Queja vinculada", noneOption:"Ninguno",
   },
   fr: {
     appName:"GovernIQ", verifying:"Vérification de votre session…", notProvisioned:"Votre compte est connecté mais n'est pas encore configuré pour GovernIQ. Contactez votre administrateur pour faire ajouter votre e-mail.",
@@ -577,7 +582,8 @@ const UI = {
     sanctioned:"Sanctionné", actionRequestUpdate:"Demandez une mise à jour du statut au département.", actionSendFollowUp:"Envoyez un suivi concernant cet engagement.",
     recentlyLogged:"Enregistré récemment — aucun résumé fourni.", actionReviewDocument:"Examinez et assignez un suivi si nécessaire.",
     tagUrgent:"URGENT", tagWatch:"À SURVEILLER", tagFollowup:"SUIVI", tagTodo:"À EXAMINER", whyItMatters:"Pourquoi c'est important",
-    whatsMissing:"Ce qui manque", recommendedNextStep:"Prochaine étape recommandée"
+    whatsMissing:"Ce qui manque", recommendedNextStep:"Prochaine étape recommandée",
+    intakeHelp:"Collez la plainte telle que reçue, en langage simple. L'IA suggérera un titre, une catégorie et un département probable — vous examinez tout avant que cela devienne un dossier officiel.", selectAssignee:"Sélectionner le destinataire", linkedGrievance:"Doléance liée", noneOption:"Aucun",
   },
   ar: {
     appName:"GovernIQ", verifying:"جارٍ التحقق من جلستك…", notProvisioned:"حسابك مسجل الدخول ولكن لم يتم إعداده بعد لـ GovernIQ. تواصل مع المسؤول لإضافة بريدك الإلكتروني.",
@@ -620,7 +626,8 @@ const UI = {
     actionFollowUpDept:"تابع مباشرة مع الإدارة المسؤولة.", sanctioned:"معتمد", actionRequestUpdate:"اطلب تحديثًا للحالة من الإدارة.",
     actionSendFollowUp:"أرسل متابعة بشأن هذا الالتزام.", recentlyLogged:"سُجّل مؤخرًا — لم يُقدَّم ملخص.", actionReviewDocument:"راجع وأسند متابعة إذا لزم الأمر.",
     tagUrgent:"عاجل", tagWatch:"مراقبة", tagFollowup:"متابعة", tagTodo:"للمراجعة", whyItMatters:"لماذا هذا مهم", whatsMissing:"المعلومات الناقصة",
-    recommendedNextStep:"الخطوة التالية الموصى بها"
+    recommendedNextStep:"الخطوة التالية الموصى بها",
+    intakeHelp:"الصق الشكوى كما وردت، بلغة بسيطة. سيقترح الذكاء الاصطناعي عنوانًا وفئة وجهة محتملة — ستراجع كل شيء قبل أن تصبح قضية رسمية.", selectAssignee:"اختر المُسند إليه", linkedGrievance:"الشكوى المرتبطة", noneOption:"لا شيء",
   }
 };
 let currentLang = (typeof localStorage !== "undefined" && localStorage.getItem("governiq_lang")) || "en";
@@ -697,6 +704,7 @@ let grievances = [];
 let projects = [];
 let documents = [];
 let commitments = [];
+let users = [];
 let activity = [];
 let currentView = "MY_DAY";
 let currentCaseId = null;
@@ -788,7 +796,7 @@ async function init() {
     }
     session = { name: body.name, role: body.role, email: body.email, tenantId: body.tenant_id };
     currentView = "MY_DAY";
-    await Promise.all([loadGrievances(), loadProjects(), loadDocuments(), loadCommitments(), loadActivity()]);
+    await Promise.all([loadGrievances(), loadProjects(), loadDocuments(), loadCommitments(), loadActivity(), loadUsers()]);
     render();
   } catch (e) {
     authError = "couldNotReachVerify";
@@ -864,6 +872,10 @@ async function loadCommitments() {
 async function loadActivity() {
   try { const res = await fetch("/api/activity"); activity = await res.json(); }
   catch (e) { activity = []; }
+}
+async function loadUsers() {
+  try { const res = await fetch("/api/users"); const data = await res.json(); users = Array.isArray(data) ? data : []; }
+  catch (e) { users = []; }
 }
 
 function tagClass(status) {
@@ -1082,6 +1094,12 @@ function renderDocumentDetail() {
 function commitmentStatusTagClass(status) {
   return { IN_PROGRESS: "progress", WAITING: "pending", DONE: "closed" }[status] || "progress";
 }
+function grievanceOptionsHtml(selectedId) {
+  const opts = grievances.map(g =>
+    `<option value="${g.id}" ${g.id === selectedId ? "selected" : ""}>${(g.displayId || g.title || "").replace(/</g, "&lt;")}</option>`
+  ).join("");
+  return `<option value="">${t("noneOption")}</option>${opts}`;
+}
 function renderCommitments() {
   const canManage = canManageOfficeRecords(session.role);
   const sorted = [...commitments].sort((a, b) => (a.status === "DONE") - (b.status === "DONE") || (a.due_date || "").localeCompare(b.due_date || ""));
@@ -1100,6 +1118,7 @@ function renderCommitments() {
           <span class="tag ${commitmentStatusTagClass(c.status)}">${prettyStatus(c.status)}</span>
         </div>
         ${c.description ? `<div class="why"><bdi>${c.description}</bdi></div>` : ""}
+        ${c.related_grievance_id ? `<div class="card-meta">${t("linkedGrievance")}: <bdi>${((grievances.find(g => g.id === c.related_grievance_id) || {}).title) || c.related_grievance_id}</bdi></div>` : ""}
         ${canManage && c.status !== "DONE" ? `<div class="btn-row"><button class="btn commitmentDoneBtn" data-id="${c.id}">${t("markDone")}</button></div>` : ""}
       </div>
     `).join("")}
@@ -1116,6 +1135,8 @@ function renderCommitmentForm() {
       <textarea class="f" id="cDesc"></textarea>
       <label class="field-row lbl">${t("dueDate")}</label>
       <input class="f" id="cDue" type="date" />
+      <label class="field-row lbl">${t("linkedGrievance")}</label>
+      <select class="f" id="cGrievance">${grievanceOptionsHtml(null)}</select>
       <div class="btn-row"><button class="btn primary" id="saveCommitmentBtn">${t("save")}</button></div>
     </div>
   `;
@@ -1136,6 +1157,8 @@ function renderCommitmentDetail() {
       <textarea class="f" id="cdDesc" ${canManage ? "" : "disabled"}>${c.description || ""}</textarea>
       <label class="field-row lbl">${t("dueDate")}</label>
       <input class="f" id="cdDue" type="date" value="${c.due_date || ""}" ${canManage ? "" : "disabled"} />
+      <label class="field-row lbl">${t("linkedGrievance")}</label>
+      <select class="f" id="cdGrievance" ${canManage ? "" : "disabled"}>${grievanceOptionsHtml(c.related_grievance_id)}</select>
       ${canManage ? `<div class="btn-row">
         <button class="btn primary" id="saveCDetailBtn" data-id="${c.id}">${t("save")}</button>
         ${c.status !== "DONE" ? `<button class="btn commitmentDoneBtn" data-id="${c.id}">${t("markDone")}</button>` : ""}
@@ -1430,7 +1453,12 @@ function renderDetail() {
     ${g.status === "NEW" ? `
       <div class="panel">
         <div class="section-title" style="margin-top:0;">${t("assign")}</div>
-        <input class="f" id="assigneeInput" placeholder="${t("assigneePlaceholder")}" type="email" />
+        ${users.length > 0 ? `
+          <select class="f" id="assigneeSelect">
+            <option value="">${t("selectAssignee")}</option>
+            ${users.map(u => `<option value="${u.email}">${u.name} — ${u.email} (${roleLabel(u.role)})</option>`).join("")}
+          </select>
+        ` : `<input class="f" id="assigneeSelect" placeholder="${t("assigneePlaceholder")}" type="email" />`}
         <button class="btn primary" id="assignBtn" ${canAssign ? "" : "disabled"}>${canAssign ? t("assign") : t("assignRequires")}</button>
       </div>` : ""}
 
@@ -1693,7 +1721,7 @@ function attachAppHandlers() {
   if (assignBtn) assignBtn.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);
     if (!hasPermission(session.role, "ASSIGN")) return;
-    const email = document.getElementById("assigneeInput").value.trim();
+    const email = document.getElementById("assigneeSelect").value.trim();
     try {
       const res = await fetch(`/api/grievances/${g.id}`, {
         method: "PATCH",
@@ -1982,6 +2010,7 @@ function attachAppHandlers() {
         body: JSON.stringify({
           title, description: document.getElementById("cDesc").value,
           dueDate: document.getElementById("cDue").value || null,
+          relatedGrievanceId: document.getElementById("cGrievance").value || null,
         }),
       });
       const out = await res.json();
@@ -2027,6 +2056,7 @@ function attachAppHandlers() {
           action: "EDIT", title,
           description: document.getElementById("cdDesc").value,
           dueDate: document.getElementById("cdDue").value || null,
+          relatedGrievanceId: document.getElementById("cdGrievance").value || null,
         }),
       });
       const data = await res.json();

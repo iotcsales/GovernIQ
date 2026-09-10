@@ -1,8 +1,12 @@
 // functions/api/commitments/[id].js
 //
 // Single-commitment detail (with its audit trail) plus two write actions:
-// EDIT (title/description/due date) and COMPLETE. Same manager-role gate
-// as creating a commitment.
+// EDIT (title/description/due date/linked grievance) and COMPLETE. Same
+// manager-role gate as creating a commitment.
+//
+// UPDATED: EDIT now also accepts relatedGrievanceId, so a commitment can
+// be linked to (or unlinked from) a grievance after creation — the field
+// already existed in the schema and on create, but editing it was missing.
 
 import { getVerifiedUser } from "../../_shared/get-verified-user.js";
 import { canManageOfficeRecords, hasPermission } from "../../_shared/permissions.js";
@@ -47,8 +51,8 @@ export async function onRequestPatch(context) {
       return Response.json({ error: "VALIDATION_ERROR", message: "title is required" }, { status: 400 });
     }
     await env.DB.prepare(
-      `UPDATE commitments SET title=?, description=?, due_date=? WHERE id=?`
-    ).bind(title, body.description || null, body.dueDate || null, id).run();
+      `UPDATE commitments SET title=?, description=?, due_date=?, related_grievance_id=? WHERE id=?`
+    ).bind(title, body.description || null, body.dueDate || null, body.relatedGrievanceId || null, id).run();
     await recordActivity(env, { entityType: "COMMITMENT", entityId: id, action: "EDITED", detail: title, actorEmail: email, actorRole: role });
 
   } else if (body.action === "COMPLETE") {

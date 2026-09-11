@@ -1,15 +1,13 @@
 // GovernIQ — Grievances endpoint (server-side role/scope enforcement)
 //
-// Role now comes ONLY from the verified Cloudflare Access JWT + D1 `users`
-// lookup — never from anything the browser sends. This closes two gaps at
-// once: (1) citizen_name/citizen_contact are stripped from the response
-// unless the caller's REAL role has SENSITIVE_DATA_ACCESS, and (2) FIELD_TEAM's
-// "only see assigned cases" scope is now actually enforced, not just defined.
+// Role comes ONLY from the verified Cloudflare Access JWT + D1 `users`
+// lookup — never from anything the browser sends.
 //
-// UPDATED: title is now optional on create — the new single-box intake
-// flow only collects the raw description; classify.js supplies the real
-// title moments later via AI. A placeholder (truncated description) is
-// used here only as a fallback in case classification never runs.
+// UPDATED (multi-assignee support, backlog item 3): the OWN_ASSIGNED scope
+// filter (FIELD_TEAM's "only see my own cases" restriction) now also
+// matches cases where the caller is a support assignee, not only the
+// primary — pulled from grievance_assignees in one extra query rather than
+// per-row, so this stays a single round trip regardless of list size.
 
 import { getVerifiedUser } from "../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../_shared/permissions.js";
@@ -33,16 +31,25 @@ export async function onRequestGet(context) {
   ).all();
 
   const scope = (PERMISSIONS[role] || {}).scope;
-  const rows = scope === "OWN_ASSIGNED"
-    ? results.filter((g) => g.assigned_to === email)
-    : results;
+  let rows = results;
+  if (scope === "OWN_ASSIGNED") {
+    const { results: teamRows } = await env.DB.prepare(
+      "SELECT DISTINCT grievance_id FROM grievance_assignees WHERE user_email = ?"
+    ).bind(email).all();
+    const onMyTeam = new Set(teamRows.map((r) => r.grievance_id));
+    rows = results.filter((g) => g.assigned_to === email || onMyTeam.has(g.id));
+  }
 
-  // Batch-fetch tasks for every visible case in one query, so "My Day"'s
-  // overdue-task count stays accurate without an N+1 query per case.
+  // Batch-fetch tasks and the full assignee team for every visible case in
+  // two queries total, so "My Day"'s overdue-task count (and any UI that
+  // wants to show the whole team, not just the primary) stays accurate
+  // without an N+1 query per case.
   let tasksByGrievance = {};
+  let assigneesByGrievance = {};
   if (rows.length > 0) {
     const ids = rows.map((r) => r.id);
     const placeholders = ids.map(() => "?").join(",");
+
     const { results: taskRows } = await env.DB.prepare(
       `SELECT grievance_id, id, title, due_date, status FROM grievance_tasks WHERE grievance_id IN (${placeholders})`
     ).bind(...ids).all();
@@ -50,13 +57,27 @@ export async function onRequestGet(context) {
       const list = tasksByGrievance[t.grievance_id] || (tasksByGrievance[t.grievance_id] = []);
       list.push({ id: t.id, title: t.title, dueDate: t.due_date || "no date set", status: t.status });
     }
+
+    const { results: assigneeRows } = await env.DB.prepare(
+      `SELECT ga.grievance_id, ga.user_email, ga.role_on_case, u.name
+       FROM grievance_assignees ga LEFT JOIN users u ON u.email = ga.user_email
+       WHERE ga.grievance_id IN (${placeholders})`
+    ).bind(...ids).all();
+    for (const a of assigneeRows) {
+      const list = assigneesByGrievance[a.grievance_id] || (assigneesByGrievance[a.grievance_id] = []);
+      list.push({ email: a.user_email, name: a.name || a.user_email, roleOnCase: a.role_on_case });
+    }
   }
 
   const canSeeSensitive = hasPermission(role, "SENSITIVE_DATA_ACCESS");
   const sanitized = rows.map((g) => {
-    const withTasks = { ...g, tasks: tasksByGrievance[g.id] || [] };
-    if (canSeeSensitive) return withTasks;
-    const { citizen_name, citizen_contact, ...rest } = withTasks;
+    const withExtras = {
+      ...g,
+      tasks: tasksByGrievance[g.id] || [],
+      assignees: assigneesByGrievance[g.id] || [],
+    };
+    if (canSeeSensitive) return withExtras;
+    const { citizen_name, citizen_contact, ...rest } = withExtras;
     return rest;
   });
 
@@ -82,8 +103,6 @@ export async function onRequestPost(context) {
   if (!description) {
     return Response.json({ error: "VALIDATION_ERROR", message: "description is required" }, { status: 400 });
   }
-  // Title is normally supplied moments later by classify.js's AI suggestion.
-  // This fallback only matters if classification never runs on this draft.
   const title = (body.title && body.title.trim()) || description.slice(0, 80);
 
   const id = crypto.randomUUID();
@@ -98,12 +117,9 @@ export async function onRequestPost(context) {
     body.locationText || null,
     body.citizenName || null,
     body.citizenContact || null,
-    email // server-derived from the verified session — never trust a client-sent createdBy
+    email
   ).run();
 
-  // Real, persisted audit trail entry — previously synthesized client-side
-  // as a fake "Loaded from D1" line on every page load; now an actual row
-  // that survives refreshes and different sessions.
   await recordAudit(env, {
     grievanceId: id,
     action: "CREATED",

@@ -3,25 +3,24 @@
 // Single-grievance detail (with a REAL audit trail) and the status-workflow
 // actions: approve, reject, assign, status change, verify, close, and edit.
 // Every action is permission-checked against the caller's server-verified
-// role and persists to D1. APPROVE reads the AI suggestion that
-// classification already stored server-side (ai_suggestion column) rather
-// than trusting category/authority values sent by the browser at approval
-// time.
+// role and persists to D1.
 //
-// UPDATED: ASSIGN is no longer a one-shot NEW -> ASSIGNED transition. A case
-// can now be (re)assigned any time it's open — NEW, ASSIGNED, IN_PROGRESS,
-// WAITING_ON_DEPARTMENT, ESCALATED, or REOPENED — not just once, straight
-// out of NEW. The first assignment still moves status NEW -> ASSIGNED, same
-// as before. A later reassignment (case already has an assignee) leaves the
-// current status untouched — it's a personnel change, not a workflow step —
-// and is logged as REASSIGNED with both the old and new assignee named,
-// distinct from the original ASSIGNED audit action. Assigning to the same
-// person the case is already with is rejected as a no-op rather than
-// producing an empty audit entry.
+// UPDATED (multi-assignee support, backlog item 3): ASSIGN still sets the
+// primary assignee (grievances.assigned_to), but now does so through
+// upsertPrimaryAssignee, which keeps a matching 'primary' row in
+// grievance_assignees in sync — the previous primary is demoted to
+// 'support' rather than dropped from the case. Two new actions,
+// ADD_ASSIGNEE and REMOVE_ASSIGNEE, manage the rest of the team (support
+// assignees) without touching who's primary. The OWN_ASSIGNED scope check
+// (used by FIELD_TEAM) now also recognizes support assignees, not just the
+// primary, so someone looped in to help on a case can actually see it.
 
 import { getVerifiedUser } from "../../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../../_shared/permissions.js";
-import { loadGrievance, loadGrievanceWithAudit, recordAudit } from "../../_shared/grievance-data.js";
+import {
+  loadGrievance, loadGrievanceWithAudit, recordAudit,
+  isUserAssignedToGrievance, upsertPrimaryAssignee, addSupportAssignee, removeSupportAssignee,
+} from "../../_shared/grievance-data.js";
 
 const VALID_TRANSITIONS = {
   DRAFT: ["PENDING_REVIEW"], PENDING_REVIEW: ["NEW", "REVIEW_REQUIRED"], REVIEW_REQUIRED: ["PENDING_REVIEW"],
@@ -35,13 +34,29 @@ function isValidTransition(from, to) {
   return Array.isArray(allowed) && allowed.includes(to);
 }
 
-// Statuses in which a case can be assigned or reassigned. Deliberately
-// separate from VALID_TRANSITIONS: assignment is a personnel action that
-// applies across most of the open-case lifecycle, not a single edge in the
-// status graph. Excludes pre-approval statuses (nothing to work yet) and
-// wrapping-up statuses (RESOLVED/VERIFIED/CLOSED — reopen first if the case
-// needs more work and a new assignee).
+// Statuses in which a case can be (re)assigned or have its support team
+// changed. Same list for both — adding/removing a support assignee makes
+// no sense on a case that isn't open yet, or one that's already wrapping up.
 const ASSIGNABLE_STATUSES = ["NEW", "ASSIGNED", "IN_PROGRESS", "WAITING_ON_DEPARTMENT", "ESCALATED", "REOPENED"];
+
+// Looks up a real, provisioned user by email and confirms they're a role
+// that can actually work a case (EDIT: true) — the same standard
+// functions/api/users.js already applies to who appears in the assignee
+// dropdown. Shared by ASSIGN and ADD_ASSIGNEE so a support assignee can
+// never be someone who couldn't have been the primary either.
+async function findAssignableUser(env, email) {
+  const user = await env.DB.prepare("SELECT email, name, role FROM users WHERE email = ?").bind(email).first();
+  if (!user) return { error: "ASSIGNEE_NOT_FOUND" };
+  if (!hasPermission(user.role, "EDIT")) return { error: "NOT_ASSIGNABLE_ROLE" };
+  return { user };
+}
+
+async function checkScope(env, role, email, row) {
+  const scope = (PERMISSIONS[role] || {}).scope;
+  if (scope !== "OWN_ASSIGNED") return true;
+  if (row.assigned_to === email) return true;
+  return isUserAssignedToGrievance(env, row.id, email);
+}
 
 export async function onRequestGet(context) {
   const { request, env, params } = context;
@@ -57,8 +72,7 @@ export async function onRequestGet(context) {
   const row = await loadGrievance(env, params.id);
   if (!row) return Response.json({ error: "NOT_FOUND" }, { status: 404 });
 
-  const scope = (PERMISSIONS[role] || {}).scope;
-  if (scope === "OWN_ASSIGNED" && row.assigned_to !== email) {
+  if (!(await checkScope(env, role, email, row))) {
     return Response.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
@@ -79,8 +93,7 @@ export async function onRequestPatch(context) {
   const row = await loadGrievance(env, id);
   if (!row) return Response.json({ error: "NOT_FOUND" }, { status: 404 });
 
-  const scope = (PERMISSIONS[role] || {}).scope;
-  if (scope === "OWN_ASSIGNED" && row.assigned_to !== email) {
+  if (!(await checkScope(env, role, email, row))) {
     return Response.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
@@ -91,8 +104,6 @@ export async function onRequestPatch(context) {
     if (!hasPermission(role, "APPROVE")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
     if (!isValidTransition(row.status, "NEW")) return Response.json({ error: "INVALID_TRANSITION" }, { status: 409 });
 
-    // The AI suggestion is read from what classification already persisted
-    // server-side — never from anything the browser sends at approval time.
     let suggestion = null;
     try { suggestion = row.ai_suggestion ? JSON.parse(row.ai_suggestion) : null; } catch (e) { suggestion = null; }
     if (!suggestion) {
@@ -120,50 +131,98 @@ export async function onRequestPatch(context) {
       }, { status: 409 });
     }
 
-    // Must be a real, provisioned GovernIQ email — not a free-text display
-    // name. assigned_to is what the OWN_ASSIGNED scope filter matches
-    // against elsewhere, so a typo or a plain name here would silently
-    // hide the case from the person it was meant for.
     const assigneeEmail = (body.assignedTo || "").trim().toLowerCase();
     if (!assigneeEmail || !assigneeEmail.includes("@")) {
       return Response.json({ error: "VALIDATION_ERROR", message: "Enter the assignee's email address" }, { status: 400 });
     }
-    const assigneeUser = await env.DB.prepare("SELECT email, name FROM users WHERE email = ?").bind(assigneeEmail).first();
-    if (!assigneeUser) {
+    const lookup = await findAssignableUser(env, assigneeEmail);
+    if (lookup.error === "ASSIGNEE_NOT_FOUND") {
       return Response.json({ error: "ASSIGNEE_NOT_FOUND", message: "That email isn't a provisioned GovernIQ user" }, { status: 400 });
     }
+    if (lookup.error === "NOT_ASSIGNABLE_ROLE") {
+      return Response.json({ error: "NOT_ASSIGNABLE_ROLE", message: "That role can't be assigned a case to work" }, { status: 400 });
+    }
+    const assigneeUser = lookup.user;
 
     const previousAssignee = row.assigned_to || null;
     if (previousAssignee === assigneeUser.email) {
       return Response.json({ error: "VALIDATION_ERROR", message: "That case is already assigned to this person" }, { status: 400 });
     }
 
-    // First assignment (out of NEW) still advances status to ASSIGNED, same
-    // as before. A reassignment of a case that's already ASSIGNED/IN_PROGRESS/
-    // etc. is a personnel change only — it leaves the current status alone
-    // rather than forcing it back to ASSIGNED.
     const isFirstAssignment = row.status === "NEW";
     const nextStatus = isFirstAssignment ? "ASSIGNED" : row.status;
 
     await env.DB.prepare(
       `UPDATE grievances SET status=?, assigned_to=?, updated_at=datetime('now') WHERE id=?`
     ).bind(nextStatus, assigneeUser.email, id).run();
+    // Keeps grievance_assignees in sync: the old primary (if any) is
+    // demoted to 'support' rather than dropped from the case.
+    await upsertPrimaryAssignee(env, id, assigneeUser.email, email);
 
     if (previousAssignee) {
       await recordAudit(env, {
-        grievanceId: id,
-        action: "REASSIGNED",
-        detail: `Reassigned from ${previousAssignee} to ${assigneeUser.name} (${assigneeUser.email})`,
+        grievanceId: id, action: "REASSIGNED",
+        detail: `Reassigned from ${previousAssignee} to ${assigneeUser.name} (${assigneeUser.email}) — ${previousAssignee} stays on the case as support`,
         ...actorMeta,
       });
     } else {
       await recordAudit(env, {
-        grievanceId: id,
-        action: "ASSIGNED",
+        grievanceId: id, action: "ASSIGNED",
         detail: `Assigned to ${assigneeUser.name} (${assigneeUser.email})`,
         ...actorMeta,
       });
     }
+
+  } else if (action === "ADD_ASSIGNEE") {
+    if (!hasPermission(role, "ASSIGN")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+    if (!ASSIGNABLE_STATUSES.includes(row.status)) {
+      return Response.json({ error: "INVALID_TRANSITION", message: "Case must be open to add someone to it" }, { status: 409 });
+    }
+
+    const supportEmail = (body.assigneeEmail || "").trim().toLowerCase();
+    if (!supportEmail || !supportEmail.includes("@")) {
+      return Response.json({ error: "VALIDATION_ERROR", message: "Enter the person's email address" }, { status: 400 });
+    }
+    const lookup = await findAssignableUser(env, supportEmail);
+    if (lookup.error === "ASSIGNEE_NOT_FOUND") {
+      return Response.json({ error: "ASSIGNEE_NOT_FOUND", message: "That email isn't a provisioned GovernIQ user" }, { status: 400 });
+    }
+    if (lookup.error === "NOT_ASSIGNABLE_ROLE") {
+      return Response.json({ error: "NOT_ASSIGNABLE_ROLE", message: "That role can't be added to a case's team" }, { status: 400 });
+    }
+    const supportUser = lookup.user;
+
+    if (row.assigned_to === supportUser.email) {
+      return Response.json({ error: "VALIDATION_ERROR", message: "That person is already the primary assignee on this case" }, { status: 400 });
+    }
+
+    await addSupportAssignee(env, id, supportUser.email, email);
+    await recordAudit(env, {
+      grievanceId: id, action: "TEAM_MEMBER_ADDED",
+      detail: `Added ${supportUser.name} (${supportUser.email}) to the case team`,
+      ...actorMeta,
+    });
+
+  } else if (action === "REMOVE_ASSIGNEE") {
+    if (!hasPermission(role, "ASSIGN")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+
+    const removeEmail = (body.assigneeEmail || "").trim().toLowerCase();
+    if (!removeEmail) {
+      return Response.json({ error: "VALIDATION_ERROR", message: "Specify which person to remove" }, { status: 400 });
+    }
+    if (removeEmail === row.assigned_to) {
+      return Response.json({
+        error: "VALIDATION_ERROR",
+        message: "Can't remove the primary assignee this way — reassign the case to someone else first",
+      }, { status: 400 });
+    }
+
+    await removeSupportAssignee(env, id, removeEmail);
+    await recordAudit(env, {
+      grievanceId: id, action: "TEAM_MEMBER_REMOVED",
+      detail: `Removed ${removeEmail} from the case team`,
+      ...actorMeta,
+    });
 
   } else if (action === "STATUS_CHANGE") {
     if (!hasPermission(role, "EDIT")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -196,10 +255,6 @@ export async function onRequestPatch(context) {
       return Response.json({ error: "VALIDATION_ERROR", message: "title and description are required" }, { status: 400 });
     }
 
-    // Citizen name/contact can only be changed by a caller whose REAL role
-    // has SENSITIVE_DATA_ACCESS — checked here server-side, not just by
-    // whether the frontend happened to show those inputs. Anyone else's
-    // edit leaves the existing stored values untouched.
     const canEditSensitive = hasPermission(role, "SENSITIVE_DATA_ACCESS");
     const citizenName = canEditSensitive && body.citizenName !== undefined ? body.citizenName : row.citizen_name;
     const citizenContact = canEditSensitive && body.citizenContact !== undefined ? body.citizenContact : row.citizen_contact;

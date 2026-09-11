@@ -3,10 +3,15 @@
 // Evidence records for a single grievance, persisted to D1. capturedBy is
 // derived from the verified session server-side — never trusted from the
 // browser, the same rule applied to createdBy elsewhere in this app.
+//
+// UPDATED (multi-assignee support, backlog item 3): the OWN_ASSIGNED scope
+// check now also recognizes support assignees on the case (via
+// isUserAssignedToGrievance), not just the primary — matching the same
+// widened rule used in tasks.js, [id].js, and grievances.js.
 
 import { getVerifiedUser } from "../../../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../../../_shared/permissions.js";
-import { loadGrievance, loadGrievanceWithAudit, recordAudit } from "../../../_shared/grievance-data.js";
+import { loadGrievance, loadGrievanceWithAudit, recordAudit, isUserAssignedToGrievance } from "../../../_shared/grievance-data.js";
 
 export async function onRequestPost(context) {
   const { request, env, params } = context;
@@ -20,8 +25,11 @@ export async function onRequestPost(context) {
   if (!row) return Response.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const scope = (PERMISSIONS[role] || {}).scope;
-  if (scope === "OWN_ASSIGNED" && row.assigned_to !== email) {
-    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  if (scope === "OWN_ASSIGNED") {
+    const onTeam = row.assigned_to === email || (await isUserAssignedToGrievance(env, id, email));
+    if (!onTeam) {
+      return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+    }
   }
   if (!hasPermission(role, "EDIT")) {
     return Response.json({ error: "FORBIDDEN" }, { status: 403 });

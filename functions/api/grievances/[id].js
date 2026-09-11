@@ -1,20 +1,23 @@
 // functions/api/grievances/[id].js
 //
 // Single-grievance detail (with a REAL audit trail) and the status-workflow
-// actions: approve, reject, assign, status change, verify, close, and now
-// edit. Every action is permission-checked against the caller's
-// server-verified role and persists to D1. APPROVE reads the AI suggestion
-// that classification already stored server-side (ai_suggestion column)
-// rather than trusting category/authority values sent by the browser at
-// approval time.
+// actions: approve, reject, assign, status change, verify, close, and edit.
+// Every action is permission-checked against the caller's server-verified
+// role and persists to D1. APPROVE reads the AI suggestion that
+// classification already stored server-side (ai_suggestion column) rather
+// than trusting category/authority values sent by the browser at approval
+// time.
 //
-// UPDATED: added an EDIT action so a typo in title/description/location
-// (or citizen name/contact, for roles with Sensitive Data Access) made at
-// intake can actually be corrected — previously grievances were the one
-// entity in the app with no edit path at all, unlike Projects/Documents/
-// Commitments. Citizen name/contact can only be changed by a caller whose
-// REAL role has SENSITIVE_DATA_ACCESS — checked server-side, never trusting
-// which inputs the browser chose to show.
+// UPDATED: ASSIGN is no longer a one-shot NEW -> ASSIGNED transition. A case
+// can now be (re)assigned any time it's open — NEW, ASSIGNED, IN_PROGRESS,
+// WAITING_ON_DEPARTMENT, ESCALATED, or REOPENED — not just once, straight
+// out of NEW. The first assignment still moves status NEW -> ASSIGNED, same
+// as before. A later reassignment (case already has an assignee) leaves the
+// current status untouched — it's a personnel change, not a workflow step —
+// and is logged as REASSIGNED with both the old and new assignee named,
+// distinct from the original ASSIGNED audit action. Assigning to the same
+// person the case is already with is rejected as a no-op rather than
+// producing an empty audit entry.
 
 import { getVerifiedUser } from "../../_shared/get-verified-user.js";
 import { hasPermission, PERMISSIONS } from "../../_shared/permissions.js";
@@ -31,6 +34,14 @@ function isValidTransition(from, to) {
   const allowed = VALID_TRANSITIONS[from];
   return Array.isArray(allowed) && allowed.includes(to);
 }
+
+// Statuses in which a case can be assigned or reassigned. Deliberately
+// separate from VALID_TRANSITIONS: assignment is a personnel action that
+// applies across most of the open-case lifecycle, not a single edge in the
+// status graph. Excludes pre-approval statuses (nothing to work yet) and
+// wrapping-up statuses (RESOLVED/VERIFIED/CLOSED — reopen first if the case
+// needs more work and a new assignee).
+const ASSIGNABLE_STATUSES = ["NEW", "ASSIGNED", "IN_PROGRESS", "WAITING_ON_DEPARTMENT", "ESCALATED", "REOPENED"];
 
 export async function onRequestGet(context) {
   const { request, env, params } = context;
@@ -102,7 +113,12 @@ export async function onRequestPatch(context) {
 
   } else if (action === "ASSIGN") {
     if (!hasPermission(role, "ASSIGN")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
-    if (!isValidTransition(row.status, "ASSIGNED")) return Response.json({ error: "INVALID_TRANSITION" }, { status: 409 });
+    if (!ASSIGNABLE_STATUSES.includes(row.status)) {
+      return Response.json({
+        error: "INVALID_TRANSITION",
+        message: "Case must be approved and still open to assign — approve it first, or reopen it if it's already resolved/closed",
+      }, { status: 409 });
+    }
 
     // Must be a real, provisioned GovernIQ email — not a free-text display
     // name. assigned_to is what the OWN_ASSIGNED scope filter matches
@@ -116,8 +132,38 @@ export async function onRequestPatch(context) {
     if (!assigneeUser) {
       return Response.json({ error: "ASSIGNEE_NOT_FOUND", message: "That email isn't a provisioned GovernIQ user" }, { status: 400 });
     }
-    await env.DB.prepare(`UPDATE grievances SET status='ASSIGNED', assigned_to=?, updated_at=datetime('now') WHERE id=?`).bind(assigneeUser.email, id).run();
-    await recordAudit(env, { grievanceId: id, action: "ASSIGNED", detail: `Assigned to ${assigneeUser.name} (${assigneeUser.email})`, ...actorMeta });
+
+    const previousAssignee = row.assigned_to || null;
+    if (previousAssignee === assigneeUser.email) {
+      return Response.json({ error: "VALIDATION_ERROR", message: "That case is already assigned to this person" }, { status: 400 });
+    }
+
+    // First assignment (out of NEW) still advances status to ASSIGNED, same
+    // as before. A reassignment of a case that's already ASSIGNED/IN_PROGRESS/
+    // etc. is a personnel change only — it leaves the current status alone
+    // rather than forcing it back to ASSIGNED.
+    const isFirstAssignment = row.status === "NEW";
+    const nextStatus = isFirstAssignment ? "ASSIGNED" : row.status;
+
+    await env.DB.prepare(
+      `UPDATE grievances SET status=?, assigned_to=?, updated_at=datetime('now') WHERE id=?`
+    ).bind(nextStatus, assigneeUser.email, id).run();
+
+    if (previousAssignee) {
+      await recordAudit(env, {
+        grievanceId: id,
+        action: "REASSIGNED",
+        detail: `Reassigned from ${previousAssignee} to ${assigneeUser.name} (${assigneeUser.email})`,
+        ...actorMeta,
+      });
+    } else {
+      await recordAudit(env, {
+        grievanceId: id,
+        action: "ASSIGNED",
+        detail: `Assigned to ${assigneeUser.name} (${assigneeUser.email})`,
+        ...actorMeta,
+      });
+    }
 
   } else if (action === "STATUS_CHANGE") {
     if (!hasPermission(role, "EDIT")) return Response.json({ error: "FORBIDDEN" }, { status: 403 });

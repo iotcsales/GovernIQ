@@ -321,6 +321,9 @@ const UI = {
     answer:"Answer", couldNotReach:"Could not reach GovernIQ right now.", citizenName:"Citizen name", contactNumber:"Contact number",
     intakeHelp:"Paste the complaint as received, in plain language. AI will suggest a title, category, and likely department — you review everything before it becomes an official case.",
     selectAssignee:"Select assignee", linkedGrievance:"Linked grievance", noneOption:"None", deptMatchHint:"\u2605 marks a likely department match for this case's responsible authority",
+    caseTeam:"Case Team", primaryRole:"Primary", supportRole:"Support", noTeamYet:"No one on the team yet.", addToTeam:"Add to team", removeFromTeam:"Remove",
+    couldNotAddToTeam:"Couldn't add that person to the team.", couldNotRemoveFromTeam:"Couldn't remove that person from the team.",
+    enterAssigneeEmail:"Enter the assignee's email:", couldNotAssignTask:"Couldn't assign that task.", couldNotUnassignTask:"Couldn't remove that assignee.", assignTaskShort:"+ assign",
     title:"Title", descriptionAsReceived:"Description (as received)", saveDraft:"Save draft", saving:"Saving...",
     couldNotSave:"Could not save — check your connection and try again.", couldNotClassify:"Could not classify right now.",
     couldNotApprove:"Could not approve — check your connection and try again.", couldNotSendBack:"Could not send back — check your connection and try again.",
@@ -854,6 +857,7 @@ function applyServerGrievance(g, data) {
   g.citizenName = data.citizen_name;
   g.citizenContact = data.citizen_contact;
   g.audit = data.audit || g.audit;
+  g.assignees = data.assignees || g.assignees || [];
   g.tasks = data.tasks || g.tasks || [];
   g.evidence = data.evidence || g.evidence || [];
   if (data.ai_suggestion) {
@@ -1499,6 +1503,23 @@ function renderDetail() {
           ${g.responsibleAuthority && users.some(u => departmentMatchesAuthority(u.department, g.responsibleAuthority)) ? `<div class="hint" style="font-size:12px;opacity:0.7;margin-top:4px;">${t("deptMatchHint")}</div>` : ""}
         ` : `<input class="f" id="assigneeSelect" placeholder="${t("assigneePlaceholder")}" type="email" value="${g.assignedTo || ""}" />`}
         <button class="btn primary" id="assignBtn" ${canAssign ? "" : "disabled"}>${canAssign ? (g.assignedTo ? t("reassign") : t("assign")) : t("assignRequires")}</button>
+      </div>
+
+      <div class="panel">
+        <div class="section-title" style="margin-top:0;">${t("caseTeam")}</div>
+        ${(g.assignees && g.assignees.length > 0) ? g.assignees.map(a => `
+          <div class="task-item">
+            <span><bdi>${a.name}</bdi> — ${a.email} (${a.roleOnCase === "primary" ? t("primaryRole") : t("supportRole")})</span>
+            ${a.roleOnCase !== "primary" && canAssign ? `<button class="btn removeTeamBtn" data-email="${a.email}">${t("removeFromTeam")}</button>` : ""}
+          </div>`).join("") : `<div class="empty">${t("noTeamYet")}</div>`}
+        ${users.length > 0 ? `
+          <div class="btn-row" style="margin-top:10px;">
+            <select class="f" id="addTeamSelect" style="flex:2;margin-bottom:0;">
+              <option value="">${t("selectAssignee")}</option>
+              ${users.filter(u => !(g.assignees || []).some(a => a.email === u.email)).map(u => `<option value="${u.email}">${u.name} — ${u.email} (${roleLabel(u.role)})</option>`).join("")}
+            </select>
+            <button class="btn" id="addTeamBtn" ${canAssign ? "" : "disabled"}>${t("addToTeam")}</button>
+          </div>` : ""}
       </div>` : ""}
 
     ${(() => {
@@ -1526,7 +1547,17 @@ function renderDetail() {
       <div class="panel">
         <div class="section-title" style="margin-top:0;">${t("tasks")}</div>
         ${g.tasks.length === 0 ? `<div class="empty">${t("noTasksYet")}</div>` :
-          g.tasks.map((tk,i) => `<div class="task-item"><span><bdi>${tk.title} — ${t("due")} ${tk.dueDate}</bdi></span><button class="btn taskDoneBtn" data-idx="${i}" ${(tk.status==="COMPLETED"||!canEdit)?"disabled":""}>${tk.status==="COMPLETED"?t("done"):t("markDone")}</button></div>`).join("")}
+          g.tasks.map((tk,i) => `
+            <div class="task-item" style="flex-direction:column;align-items:stretch;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span><bdi>${tk.title} — ${t("due")} ${tk.dueDate}</bdi></span>
+                <button class="btn taskDoneBtn" data-idx="${i}" ${(tk.status==="COMPLETED"||!canEdit)?"disabled":""}>${tk.status==="COMPLETED"?t("done"):t("markDone")}</button>
+              </div>
+              <div style="margin-top:4px;font-size:12px;color:var(--slate);">
+                ${(tk.assignees || []).map(a => `<bdi>${a.name}</bdi> <button class="btn taskRemoveAssigneeBtn" data-task-id="${tk.id}" data-email="${a.email}" style="padding:1px 6px;font-size:11px;" ${canEdit ? "" : "disabled"}>×</button>`).join(" &middot; ")}
+                ${canEdit && tk.status !== "COMPLETED" ? `<button class="btn taskAddAssigneeBtn" data-task-id="${tk.id}" style="padding:1px 6px;font-size:11px;margin-left:6px;">${t("assignTaskShort")}</button>` : ""}
+              </div>
+            </div>`).join("")}
         <div class="btn-row">
           <input class="f" id="taskTitle" placeholder="${t("taskPlaceholder")}" style="flex:2;margin-bottom:0;" />
           <input class="f" id="taskDue" type="date" style="flex:1;margin-bottom:0;" />
@@ -1775,6 +1806,87 @@ function attachAppHandlers() {
       alert(e.message || t("couldNotAssign"));
     }
   });
+
+  const addTeamBtn = document.getElementById("addTeamBtn");
+  if (addTeamBtn) addTeamBtn.addEventListener("click", async () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "ASSIGN")) return;
+    const email = document.getElementById("addTeamSelect").value.trim();
+    if (!email) return;
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ADD_ASSIGNEE", assigneeEmail: email }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.message || data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert(e.message || t("couldNotAddToTeam"));
+    }
+  });
+
+  document.querySelectorAll(".removeTeamBtn").forEach(b => b.addEventListener("click", async () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "ASSIGN")) return;
+    const email = b.dataset.email;
+    try {
+      const res = await fetch(`/api/grievances/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REMOVE_ASSIGNEE", assigneeEmail: email }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.message || data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert(e.message || t("couldNotRemoveFromTeam"));
+    }
+  }));
+
+  document.querySelectorAll(".taskAddAssigneeBtn").forEach(b => b.addEventListener("click", async () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "EDIT")) return;
+    const taskId = b.dataset.taskId;
+    const email = (prompt(t("enterAssigneeEmail")) || "").trim().toLowerCase();
+    if (!email) return;
+    try {
+      const res = await fetch(`/api/grievances/${g.id}/tasks`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, action: "ADD_ASSIGNEE", assigneeEmail: email }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.message || data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert(e.message || t("couldNotAssignTask"));
+    }
+  }));
+
+  document.querySelectorAll(".taskRemoveAssigneeBtn").forEach(b => b.addEventListener("click", async () => {
+    const g = grievances.find(x => x.id === currentCaseId);
+    if (!hasPermission(session.role, "EDIT")) return;
+    const taskId = b.dataset.taskId;
+    const email = b.dataset.email;
+    try {
+      const res = await fetch(`/api/grievances/${g.id}/tasks`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, action: "REMOVE_ASSIGNEE", assigneeEmail: email }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.message || data.error);
+      applyServerGrievance(g, data);
+      render();
+    } catch (e) {
+      alert(e.message || t("couldNotUnassignTask"));
+    }
+  }));
 
   document.querySelectorAll(".statusBtn").forEach(b => b.addEventListener("click", async () => {
     const g = grievances.find(x => x.id === currentCaseId);

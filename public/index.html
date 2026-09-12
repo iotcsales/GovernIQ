@@ -201,24 +201,15 @@
   .toolbar .btn{white-space:nowrap;}
   .load-more-row{display:flex;justify-content:center;margin:14px 0 4px;}
   .no-results{font-size:13px;color:var(--slate);padding:16px 0;}
-
-  #printArea{display:none;}
-  @media print{
-    body *{visibility:hidden !important;}
-    #printArea, #printArea *{visibility:visible !important;}
-    #printArea{display:block !important;position:absolute;top:0;left:0;width:100%;padding:20px;}
-    #printArea h2{font-family:'Fraunces','Noto Serif Devanagari',serif;margin:0 0 4px;}
-    #printArea table{width:100%;border-collapse:collapse;font-size:11px;}
-    #printArea th,#printArea td{text-align:left;padding:5px 6px;border-bottom:1px solid #ccc;}
-    #printArea th{border-bottom:1.5px solid #000;}
-  }
 </style>
 </head>
 <body>
 
 <div id="root"></div>
-<div id="printArea"></div>
 
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
 "use strict";
 // =====================================================================
@@ -338,7 +329,7 @@ const UI = {
     tasks:"Tasks", noTasksYet:"No tasks yet.", due:"due", markDone:"Mark done", done:"Done", taskPlaceholder:"Task",
     searchPlaceholder:"Search...", allStatuses:"All statuses", allCategories:"All categories", allPriorities:"All priorities",
     allAssignees:"All assignees", allDepartments:"All departments", allTypes:"All types", exportCsv:"Export CSV", exportPdf:"Export PDF",
-    noResultsMatch:"No records match these filters.", loadMore:"Load more", more:"more",
+    noResultsMatch:"No records match these filters.", loadMore:"Load more", more:"more", share:"Share",
     add:"Add", evidence:"Evidence", noEvidenceYet:"No evidence recorded.", evidencePlaceholder:"Evidence description (e.g. photo of hand pump)",
     auditHistory:"Audit history", askPlaceholder:"Ask GovernIQ about these cases...", ask:"Ask", thinking:"Thinking...",
     answer:"Answer", couldNotReach:"Could not reach GovernIQ right now.", citizenName:"Citizen name", contactNumber:"Contact number",
@@ -848,15 +839,66 @@ function downloadCSV(filename, rows, columns) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function printAsPDF(title, rows, columns) {
-  const theadHtml = `<tr>${columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join("")}</tr>`;
-  const tbodyHtml = rows.map(r => `<tr>${columns.map(c => `<td>${escapeHtml(typeof c.value === "function" ? c.value(r) : (r[c.key] ?? ""))}</td>`).join("")}</tr>`).join("");
-  const area = document.getElementById("printArea");
-  area.innerHTML = `
-    <h2>${escapeHtml(title)}</h2>
-    <p style="font-size:11px;color:#555;margin:0 0 12px;">Generated ${new Date().toLocaleString()} · ${rows.length} record(s)</p>
-    <table><thead>${theadHtml}</thead><tbody>${tbodyHtml}</tbody></table>`;
-  window.print();
+// Feature-detected once at load: whether this browser supports sharing a
+// real file (not just text/links) via the OS-level share sheet. True on
+// most mobile browsers (Android Chrome, iOS Safari); largely false on
+// desktop today. The Share button only ever renders when this is true —
+// showing it otherwise would be a dead end with no fallback, since
+// WhatsApp/Telegram don't offer a universal "share this file" web link.
+const SUPPORTS_FILE_SHARE = (() => {
+  try {
+    if (!navigator.canShare) return false;
+    const probe = new File(["x"], "probe.txt", { type: "text/plain" });
+    return navigator.canShare({ files: [probe] });
+  } catch (e) { return false; }
+})();
+
+// Builds a real PDF (via jsPDF + autoTable, loaded from CDN) and returns
+// it as a Blob — used both for direct download and for sharing, so the
+// two code paths can't produce inconsistent output.
+function buildPDFBlob(title, rows, columns) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape" });
+  doc.setFontSize(14);
+  doc.text(title, 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text(`Generated ${new Date().toLocaleString()} · ${rows.length} record(s)`, 14, 21);
+  doc.autoTable({
+    startY: 26,
+    head: [columns.map(c => c.label)],
+    body: rows.map(r => columns.map(c => String((typeof c.value === "function" ? c.value(r) : r[c.key]) ?? ""))),
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [30, 42, 74] },
+  });
+  return doc.output("blob");
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadPDF(filename, title, rows, columns) {
+  downloadBlob(filename, buildPDFBlob(title, rows, columns));
+}
+
+// Shares a real PDF file via the OS-level share sheet (WhatsApp, Telegram,
+// Email, etc. — whatever the person has installed). Only called when
+// SUPPORTS_FILE_SHARE is true, so the browser is already known to support
+// this; still wrapped in try/catch since the person can cancel the native
+// share sheet, which some browsers surface as a thrown error.
+async function shareAsPDF(filename, title, rows, columns) {
+  try {
+    const blob = buildPDFBlob(title, rows, columns);
+    const file = new File([blob], filename, { type: "application/pdf" });
+    await navigator.share({ files: [file], title });
+  } catch (e) {
+    // Cancelled by the person, or the share sheet failed — nothing to do.
+  }
 }
 
 const EXPORT_COLUMNS = {
@@ -1140,6 +1182,7 @@ function renderProjects() {
         <select class="f" id="filterDepartment_projects"><option value="">${t("allDepartments")}</option>${departments.map(d => `<option value="${escapeHtml(d)}" ${f.department===d?"selected":""}>${escapeHtml(d)}</option>`).join("")}</select>
         <button class="btn" id="exportCsvBtn_projects">${t("exportCsv")}</button>
         <button class="btn" id="exportPdfBtn_projects">${t("exportPdf")}</button>
+        ${SUPPORTS_FILE_SHARE ? `<button class="btn" id="shareBtn_projects">${t("share")}</button>` : ""}
       </div>
       ${filtered.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(p => `
       <div class="card st-${projectStatusTagClass(p.status)}" data-open-project="${p.id}">
@@ -1236,6 +1279,7 @@ function renderDocuments() {
         <select class="f" id="filterSourceDept_documents"><option value="">${t("allDepartments")}</option>${sourceDepts.map(sd => `<option value="${escapeHtml(sd)}" ${f.sourceDepartment===sd?"selected":""}>${escapeHtml(sd)}</option>`).join("")}</select>
         <button class="btn" id="exportCsvBtn_documents">${t("exportCsv")}</button>
         <button class="btn" id="exportPdfBtn_documents">${t("exportPdf")}</button>
+        ${SUPPORTS_FILE_SHARE ? `<button class="btn" id="shareBtn_documents">${t("share")}</button>` : ""}
       </div>
       ${filtered.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(d => `
       <div class="card" data-open-document="${d.id}">
@@ -1325,6 +1369,7 @@ function renderCommitments() {
         <select class="f" id="filterStatus_commitments"><option value="">${t("allStatuses")}</option>${statuses.map(s => `<option value="${s}" ${f.status===s?"selected":""}>${prettyStatus(s)}</option>`).join("")}</select>
         <button class="btn" id="exportCsvBtn_commitments">${t("exportCsv")}</button>
         <button class="btn" id="exportPdfBtn_commitments">${t("exportPdf")}</button>
+        ${SUPPORTS_FILE_SHARE ? `<button class="btn" id="shareBtn_commitments">${t("share")}</button>` : ""}
       </div>
       ${sorted.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(c => `
       <div class="card" data-open-commitment="${c.id}">
@@ -1594,6 +1639,7 @@ function renderList() {
         <select class="f" id="filterAssignee_grievances"><option value="">${t("allAssignees")}</option>${users.map(u => `<option value="${u.email}" ${f.assignedTo===u.email?"selected":""}>${escapeHtml(u.name)}</option>`).join("")}</select>
         <button class="btn" id="exportCsvBtn_grievances">${t("exportCsv")}</button>
         <button class="btn" id="exportPdfBtn_grievances">${t("exportPdf")}</button>
+        ${SUPPORTS_FILE_SHARE ? `<button class="btn" id="shareBtn_grievances">${t("share")}</button>` : ""}
       </div>
       ${filtered.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(g => renderCaseCard(g, false)).join("")}
       ${filtered.length > f.visible ? `<div class="load-more-row"><button class="btn" id="loadMoreBtn_grievances">${t("loadMore")} (${filtered.length - f.visible} ${t("more")})</button></div>` : ""}
@@ -1834,7 +1880,13 @@ function attachAppHandlers() {
     if (exportPdfBtn) exportPdfBtn.addEventListener("click", () => {
       const filterFn = { grievances: filterGrievances, projects: filterProjects, documents: filterDocuments, commitments: filterCommitments }[key];
       const titleKey = { grievances: "allCases", projects: "navProjects", documents: "navDocuments", commitments: "navCommitments" }[key];
-      printAsPDF(t(titleKey), filterFn(), EXPORT_COLUMNS[key]);
+      downloadPDF(`${key}.pdf`, t(titleKey), filterFn(), EXPORT_COLUMNS[key]);
+    });
+    const shareBtn = document.getElementById(`shareBtn_${key}`);
+    if (shareBtn) shareBtn.addEventListener("click", () => {
+      const filterFn = { grievances: filterGrievances, projects: filterProjects, documents: filterDocuments, commitments: filterCommitments }[key];
+      const titleKey = { grievances: "allCases", projects: "navProjects", documents: "navDocuments", commitments: "navCommitments" }[key];
+      shareAsPDF(`${key}.pdf`, t(titleKey), filterFn(), EXPORT_COLUMNS[key]);
     });
   }
   wireListToolbar("grievances", [

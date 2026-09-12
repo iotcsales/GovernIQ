@@ -193,11 +193,31 @@
 
   :focus-visible{outline:2px solid var(--brass-2);outline-offset:1px;}
   @media (prefers-reduced-motion:reduce){ .card,.tab,.btn{transition:none;} }
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;}
+  .toolbar .f{margin-bottom:0;min-width:140px;flex:1;}
+  .toolbar select.f{flex:0 1 170px;}
+  .toolbar input[type="search"].f{flex:2 1 220px;}
+  .toolbar .btn{white-space:nowrap;}
+  .load-more-row{display:flex;justify-content:center;margin:14px 0 4px;}
+  .no-results{font-size:13px;color:var(--slate);padding:16px 0;}
+
+  #printArea{display:none;}
+  @media print{
+    body *{visibility:hidden !important;}
+    #printArea, #printArea *{visibility:visible !important;}
+    #printArea{display:block !important;position:absolute;top:0;left:0;width:100%;padding:20px;}
+    #printArea h2{font-family:'Fraunces','Noto Serif Devanagari',serif;margin:0 0 4px;}
+    #printArea table{width:100%;border-collapse:collapse;font-size:11px;}
+    #printArea th,#printArea td{text-align:left;padding:5px 6px;border-bottom:1px solid #ccc;}
+    #printArea th{border-bottom:1.5px solid #000;}
+  }
 </style>
 </head>
 <body>
 
 <div id="root"></div>
+<div id="printArea"></div>
 
 <script>
 "use strict";
@@ -316,6 +336,9 @@ const UI = {
     sendBack:"Send back for correction", assign:"Assign", reassign:"Reassign", assignRequires:"Assign requires Office Admin+", assigneePlaceholder:"Assignee email (must be a provisioned GovernIQ user)",
     status:"Status", verify:"Verify", verifyRequires:"Verify requires Chief of Staff", closeCase:"Close case", closeRequires:"Close requires Chief of Staff",
     tasks:"Tasks", noTasksYet:"No tasks yet.", due:"due", markDone:"Mark done", done:"Done", taskPlaceholder:"Task",
+    searchPlaceholder:"Search...", allStatuses:"All statuses", allCategories:"All categories", allPriorities:"All priorities",
+    allAssignees:"All assignees", allDepartments:"All departments", allTypes:"All types", exportCsv:"Export CSV", exportPdf:"Export PDF",
+    noResultsMatch:"No records match these filters.", loadMore:"Load more", more:"more",
     add:"Add", evidence:"Evidence", noEvidenceYet:"No evidence recorded.", evidencePlaceholder:"Evidence description (e.g. photo of hand pump)",
     auditHistory:"Audit history", askPlaceholder:"Ask GovernIQ about these cases...", ask:"Ask", thinking:"Thinking...",
     answer:"Answer", couldNotReach:"Could not reach GovernIQ right now.", citizenName:"Citizen name", contactNumber:"Contact number",
@@ -741,6 +764,121 @@ let grievances = [];
 let projects = [];
 let documents = [];
 let commitments = [];
+
+// ---------------------------------------------------------------------
+// Search / filter / pagination (client-side — all four lists are already
+// loaded in full for My Day's stats, so filtering/paginating in memory is
+// instant and needs no backend changes or new API contracts).
+// ---------------------------------------------------------------------
+const PAGE_SIZE = 20;
+let listFilters = {
+  grievances: { search: "", status: "", category: "", priority: "", assignedTo: "", visible: PAGE_SIZE },
+  projects: { search: "", status: "", department: "", visible: PAGE_SIZE },
+  documents: { search: "", docType: "", sourceDepartment: "", visible: PAGE_SIZE },
+  commitments: { search: "", status: "", visible: PAGE_SIZE },
+};
+function resetVisible(key) { listFilters[key].visible = PAGE_SIZE; }
+
+function textMatches(haystack, term) {
+  if (!term) return true;
+  return (haystack || "").toLowerCase().includes(term.trim().toLowerCase());
+}
+
+function filterGrievances() {
+  const f = listFilters.grievances;
+  return grievances.filter(g => {
+    if (f.status && g.status !== f.status) return false;
+    if (f.category && g.category !== f.category) return false;
+    if (f.priority && g.priority !== f.priority) return false;
+    if (f.assignedTo && g.assignedTo !== f.assignedTo && !(g.assignees || []).some(a => a.email === f.assignedTo)) return false;
+    if (f.search) {
+      const haystack = [g.title, g.description, g.displayId, hasPermission(session.role, "SENSITIVE_DATA_ACCESS") ? g.citizenName : ""].join(" ");
+      if (!textMatches(haystack, f.search)) return false;
+    }
+    return true;
+  });
+}
+function filterProjects() {
+  const f = listFilters.projects;
+  return projects.filter(p => {
+    if (f.status && p.status !== f.status) return false;
+    if (f.department && p.department !== f.department) return false;
+    if (f.search && !textMatches([p.title, p.description, p.department].join(" "), f.search)) return false;
+    return true;
+  });
+}
+function filterDocuments() {
+  const f = listFilters.documents;
+  return documents.filter(d => {
+    if (f.docType && d.doc_type !== f.docType) return false;
+    if (f.sourceDepartment && d.source_department !== f.sourceDepartment) return false;
+    if (f.search && !textMatches([d.title, d.summary, d.source_department].join(" "), f.search)) return false;
+    return true;
+  });
+}
+function filterCommitments() {
+  const f = listFilters.commitments;
+  return commitments.filter(c => {
+    if (f.status && c.status !== f.status) return false;
+    if (f.search && !textMatches([c.title, c.description].join(" "), f.search)) return false;
+    return true;
+  });
+}
+
+// Unique, non-empty values for a field across a list — used to populate
+// filter dropdowns from whatever data actually exists, rather than a
+// hardcoded list that could drift out of sync with real records.
+function uniqueValues(list, field) {
+  return [...new Set(list.map(x => x[field]).filter(Boolean))].sort();
+}
+
+function downloadCSV(filename, rows, columns) {
+  const esc = (val) => {
+    const s = (val ?? "").toString().replace(/"/g, '""');
+    return /[",\n]/.test(s) ? `"${s}"` : s;
+  };
+  const lines = [columns.map(c => esc(c.label)).join(",")];
+  rows.forEach(r => lines.push(columns.map(c => esc(typeof c.value === "function" ? c.value(r) : r[c.key])).join(",")));
+  const csv = "\uFEFF" + lines.join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function printAsPDF(title, rows, columns) {
+  const theadHtml = `<tr>${columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join("")}</tr>`;
+  const tbodyHtml = rows.map(r => `<tr>${columns.map(c => `<td>${escapeHtml(typeof c.value === "function" ? c.value(r) : (r[c.key] ?? ""))}</td>`).join("")}</tr>`).join("");
+  const area = document.getElementById("printArea");
+  area.innerHTML = `
+    <h2>${escapeHtml(title)}</h2>
+    <p style="font-size:11px;color:#555;margin:0 0 12px;">Generated ${new Date().toLocaleString()} · ${rows.length} record(s)</p>
+    <table><thead>${theadHtml}</thead><tbody>${tbodyHtml}</tbody></table>`;
+  window.print();
+}
+
+const EXPORT_COLUMNS = {
+  grievances: [
+    { label: "Case ID", key: "displayId" }, { label: "Title", key: "title" }, { label: "Status", key: "status" },
+    { label: "Category", key: "category" }, { label: "Priority", key: "priority" },
+    { label: "Assigned To", key: "assignedTo" }, { label: "Created", key: "createdAt" },
+  ],
+  projects: [
+    { label: "Title", key: "title" }, { label: "Status", key: "status" }, { label: "Department", key: "department" },
+    { label: "Location", key: "location_text" }, { label: "Sanctioned Date", key: "sanctioned_date" },
+  ],
+  documents: [
+    { label: "Title", key: "title" }, { label: "Source Department", key: "source_department" },
+    { label: "Type", key: "doc_type" }, { label: "Received", key: "received_date" }, { label: "Summary", key: "summary" },
+  ],
+  commitments: [
+    { label: "Title", key: "title" }, { label: "Status", key: "status" }, { label: "Due Date", key: "due_date" },
+    { label: "Description", key: "description" },
+  ],
+};
+
 let users = [];
 let activity = [];
 let currentView = "MY_DAY";
@@ -887,6 +1025,7 @@ async function loadGrievances() {
       assignedTo: r.assigned_to,
       createdAt: r.created_at,
       aiSuggestion: null,       // populated when a case is opened (detail fetch), not in the list
+      assignees: r.assignees || [],
       tasks: r.tasks || [], evidence: [],  // evidence populated on detail fetch; tasks come with the list for the My Day overdue count
       audit: [{ action: "CREATED", actor: "database", at: r.created_at, detail: "Loaded from D1" }],
     }));
@@ -984,12 +1123,25 @@ function projectStatusTagClass(status) {
 }
 function renderProjects() {
   const canManage = canManageOfficeRecords(session.role);
+  const f = listFilters.projects;
+  const filtered = filterProjects();
+  const visible = filtered.slice(0, f.visible);
+  const statuses = uniqueValues(projects, "status");
+  const departments = uniqueValues(projects, "department");
   return `
     <div class="page-title">${t("navProjects")}</div>
     <div class="btn-row" style="margin:0 0 14px;">
       <button class="btn primary" id="newProjectBtn" ${canManage ? "" : "disabled"}>${t("newProject")}</button>
     </div>
-    ${projects.length === 0 ? `<div class="empty">${t("noProjectsYet")}</div>` : projects.map(p => `
+    ${projects.length === 0 ? `<div class="empty">${t("noProjectsYet")}</div>` : `
+      <div class="toolbar">
+        <input class="f" type="search" id="filterSearch_projects" placeholder="${t("searchPlaceholder")}" value="${escapeHtml(f.search)}" />
+        <select class="f" id="filterStatus_projects"><option value="">${t("allStatuses")}</option>${statuses.map(s => `<option value="${s}" ${f.status===s?"selected":""}>${prettyStatus(s)}</option>`).join("")}</select>
+        <select class="f" id="filterDepartment_projects"><option value="">${t("allDepartments")}</option>${departments.map(d => `<option value="${escapeHtml(d)}" ${f.department===d?"selected":""}>${escapeHtml(d)}</option>`).join("")}</select>
+        <button class="btn" id="exportCsvBtn_projects">${t("exportCsv")}</button>
+        <button class="btn" id="exportPdfBtn_projects">${t("exportPdf")}</button>
+      </div>
+      ${filtered.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(p => `
       <div class="card st-${projectStatusTagClass(p.status)}" data-open-project="${p.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div>
@@ -1003,6 +1155,8 @@ function renderProjects() {
           `<button class="btn projectStatusBtn" data-id="${p.id}" data-status="${s}">${prettyStatus(s)}</button>`).join("")}</div>` : ""}
       </div>
     `).join("")}
+      ${filtered.length > f.visible ? `<div class="load-more-row"><button class="btn" id="loadMoreBtn_projects">${t("loadMore")} (${filtered.length - f.visible} ${t("more")})</button></div>` : ""}
+    `}
   `;
 }
 function renderProjectForm() {
@@ -1065,18 +1219,33 @@ function renderProjectDetail() {
 // =====================================================================
 function renderDocuments() {
   const canManage = canManageOfficeRecords(session.role);
+  const f = listFilters.documents;
+  const filtered = filterDocuments();
+  const visible = filtered.slice(0, f.visible);
+  const docTypes = uniqueValues(documents, "doc_type");
+  const sourceDepts = uniqueValues(documents, "source_department");
   return `
     <div class="page-title">${t("navDocuments")}</div>
     <div class="btn-row" style="margin:0 0 14px;">
       <button class="btn primary" id="newDocumentBtn" ${canManage ? "" : "disabled"}>${t("newDocument")}</button>
     </div>
-    ${documents.length === 0 ? `<div class="empty">${t("noDocumentsYet")}</div>` : documents.map(d => `
+    ${documents.length === 0 ? `<div class="empty">${t("noDocumentsYet")}</div>` : `
+      <div class="toolbar">
+        <input class="f" type="search" id="filterSearch_documents" placeholder="${t("searchPlaceholder")}" value="${escapeHtml(f.search)}" />
+        <select class="f" id="filterDocType_documents"><option value="">${t("allTypes")}</option>${docTypes.map(dt => `<option value="${escapeHtml(dt)}" ${f.docType===dt?"selected":""}>${escapeHtml(dt)}</option>`).join("")}</select>
+        <select class="f" id="filterSourceDept_documents"><option value="">${t("allDepartments")}</option>${sourceDepts.map(sd => `<option value="${escapeHtml(sd)}" ${f.sourceDepartment===sd?"selected":""}>${escapeHtml(sd)}</option>`).join("")}</select>
+        <button class="btn" id="exportCsvBtn_documents">${t("exportCsv")}</button>
+        <button class="btn" id="exportPdfBtn_documents">${t("exportPdf")}</button>
+      </div>
+      ${filtered.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(d => `
       <div class="card" data-open-document="${d.id}">
         <div class="card-title"><bdi>${d.title}</bdi></div>
         <div class="card-meta"><bdi>${[d.source_department, d.doc_type, d.received_date].filter(Boolean).join(" · ")}</bdi></div>
         ${d.summary ? `<div class="why"><bdi>${d.summary}</bdi></div>` : ""}
       </div>
     `).join("")}
+      ${filtered.length > f.visible ? `<div class="load-more-row"><button class="btn" id="loadMoreBtn_documents">${t("loadMore")} (${filtered.length - f.visible} ${t("more")})</button></div>` : ""}
+    `}
   `;
 }
 function renderDocumentForm() {
@@ -1140,13 +1309,24 @@ function grievanceOptionsHtml(selectedId) {
 }
 function renderCommitments() {
   const canManage = canManageOfficeRecords(session.role);
-  const sorted = [...commitments].sort((a, b) => (a.status === "DONE") - (b.status === "DONE") || (a.due_date || "").localeCompare(b.due_date || ""));
+  const f = listFilters.commitments;
+  const filtered = filterCommitments();
+  const sorted = [...filtered].sort((a, b) => (a.status === "DONE") - (b.status === "DONE") || (a.due_date || "").localeCompare(b.due_date || ""));
+  const visible = sorted.slice(0, f.visible);
+  const statuses = uniqueValues(commitments, "status");
   return `
     <div class="page-title">${t("navCommitments")}</div>
     <div class="btn-row" style="margin:0 0 14px;">
       <button class="btn primary" id="newCommitmentBtn" ${canManage ? "" : "disabled"}>${t("newCommitment")}</button>
     </div>
-    ${sorted.length === 0 ? `<div class="empty">${t("noCommitmentsYet")}</div>` : sorted.map(c => `
+    ${commitments.length === 0 ? `<div class="empty">${t("noCommitmentsYet")}</div>` : `
+      <div class="toolbar">
+        <input class="f" type="search" id="filterSearch_commitments" placeholder="${t("searchPlaceholder")}" value="${escapeHtml(f.search)}" />
+        <select class="f" id="filterStatus_commitments"><option value="">${t("allStatuses")}</option>${statuses.map(s => `<option value="${s}" ${f.status===s?"selected":""}>${prettyStatus(s)}</option>`).join("")}</select>
+        <button class="btn" id="exportCsvBtn_commitments">${t("exportCsv")}</button>
+        <button class="btn" id="exportPdfBtn_commitments">${t("exportPdf")}</button>
+      </div>
+      ${sorted.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(c => `
       <div class="card" data-open-commitment="${c.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div>
@@ -1160,6 +1340,8 @@ function renderCommitments() {
         ${canManage && c.status !== "DONE" ? `<div class="btn-row"><button class="btn commitmentDoneBtn" data-id="${c.id}">${t("markDone")}</button></div>` : ""}
       </div>
     `).join("")}
+      ${sorted.length > f.visible ? `<div class="load-more-row"><button class="btn" id="loadMoreBtn_commitments">${t("loadMore")} (${sorted.length - f.visible} ${t("more")})</button></div>` : ""}
+    `}
   `;
 }
 function renderCommitmentForm() {
@@ -1392,12 +1574,30 @@ function renderCaseCard(g, showWhy) {
 }
 
 function renderList() {
+  const f = listFilters.grievances;
+  const filtered = filterGrievances();
+  const visible = filtered.slice(0, f.visible);
+  const statuses = uniqueValues(grievances, "status");
+  const categories = uniqueValues(grievances, "category");
+  const priorities = uniqueValues(grievances, "priority");
   return `
     <div class="section-title">${t("allCases")}</div>
     <div class="btn-row" style="margin:0 0 14px;">
       <button class="btn primary" id="newCaseBtn" ${hasPermission(session.role, "CREATE") ? "" : "disabled"}>${t("fileNewGrievance")}</button>
     </div>
-    ${grievances.length === 0 ? `<div class="empty">${t("noGrievancesYet")}</div>` : grievances.map(g => renderCaseCard(g, false)).join("")}
+    ${grievances.length === 0 ? `<div class="empty">${t("noGrievancesYet")}</div>` : `
+      <div class="toolbar">
+        <input class="f" type="search" id="filterSearch_grievances" placeholder="${t("searchPlaceholder")}" value="${escapeHtml(f.search)}" />
+        <select class="f" id="filterStatus_grievances"><option value="">${t("allStatuses")}</option>${statuses.map(s => `<option value="${s}" ${f.status===s?"selected":""}>${statusLabel(s)}</option>`).join("")}</select>
+        <select class="f" id="filterCategory_grievances"><option value="">${t("allCategories")}</option>${categories.map(c => `<option value="${escapeHtml(c)}" ${f.category===c?"selected":""}>${escapeHtml(c)}</option>`).join("")}</select>
+        <select class="f" id="filterPriority_grievances"><option value="">${t("allPriorities")}</option>${priorities.map(p => `<option value="${p}" ${f.priority===p?"selected":""}>${p}</option>`).join("")}</select>
+        <select class="f" id="filterAssignee_grievances"><option value="">${t("allAssignees")}</option>${users.map(u => `<option value="${u.email}" ${f.assignedTo===u.email?"selected":""}>${escapeHtml(u.name)}</option>`).join("")}</select>
+        <button class="btn" id="exportCsvBtn_grievances">${t("exportCsv")}</button>
+        <button class="btn" id="exportPdfBtn_grievances">${t("exportPdf")}</button>
+      </div>
+      ${filtered.length === 0 ? `<div class="no-results">${t("noResultsMatch")}</div>` : visible.map(g => renderCaseCard(g, false)).join("")}
+      ${filtered.length > f.visible ? `<div class="load-more-row"><button class="btn" id="loadMoreBtn_grievances">${t("loadMore")} (${filtered.length - f.visible} ${t("more")})</button></div>` : ""}
+    `}
   `;
 }
 
@@ -1595,6 +1795,62 @@ function renderAskBar() {
 // HANDLERS
 // =====================================================================
 function attachAppHandlers() {
+  // ---------------------------------------------------------------------
+  // Search / filter / pagination / export — shared wiring for all four
+  // list views. Re-renders on every change since this app re-renders the
+  // whole root on any state change; the search input's focus and cursor
+  // position are restored right after, since re-rendering destroys and
+  // recreates the DOM node.
+  // ---------------------------------------------------------------------
+  function wireListToolbar(key, filterFields) {
+    const searchInput = document.getElementById(`filterSearch_${key}`);
+    if (searchInput) searchInput.addEventListener("input", (e) => {
+      const cursorPos = e.target.selectionStart;
+      listFilters[key].search = e.target.value;
+      resetVisible(key);
+      render();
+      const el = document.getElementById(`filterSearch_${key}`);
+      if (el) { el.focus(); el.setSelectionRange(cursorPos, cursorPos); }
+    });
+    filterFields.forEach(({ field, idSuffix }) => {
+      const el = document.getElementById(`filter${idSuffix}_${key}`);
+      if (el) el.addEventListener("change", (e) => {
+        listFilters[key][field] = e.target.value;
+        resetVisible(key);
+        render();
+      });
+    });
+    const loadMoreBtn = document.getElementById(`loadMoreBtn_${key}`);
+    if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => {
+      listFilters[key].visible += PAGE_SIZE;
+      render();
+    });
+    const exportCsvBtn = document.getElementById(`exportCsvBtn_${key}`);
+    if (exportCsvBtn) exportCsvBtn.addEventListener("click", () => {
+      const filterFn = { grievances: filterGrievances, projects: filterProjects, documents: filterDocuments, commitments: filterCommitments }[key];
+      downloadCSV(`${key}.csv`, filterFn(), EXPORT_COLUMNS[key]);
+    });
+    const exportPdfBtn = document.getElementById(`exportPdfBtn_${key}`);
+    if (exportPdfBtn) exportPdfBtn.addEventListener("click", () => {
+      const filterFn = { grievances: filterGrievances, projects: filterProjects, documents: filterDocuments, commitments: filterCommitments }[key];
+      const titleKey = { grievances: "allCases", projects: "navProjects", documents: "navDocuments", commitments: "navCommitments" }[key];
+      printAsPDF(t(titleKey), filterFn(), EXPORT_COLUMNS[key]);
+    });
+  }
+  wireListToolbar("grievances", [
+    { field: "status", idSuffix: "Status" }, { field: "category", idSuffix: "Category" },
+    { field: "priority", idSuffix: "Priority" }, { field: "assignedTo", idSuffix: "Assignee" },
+  ]);
+  wireListToolbar("projects", [
+    { field: "status", idSuffix: "Status" }, { field: "department", idSuffix: "Department" },
+  ]);
+  wireListToolbar("documents", [
+    { field: "docType", idSuffix: "DocType" }, { field: "sourceDepartment", idSuffix: "SourceDept" },
+  ]);
+  wireListToolbar("commitments", [
+    { field: "status", idSuffix: "Status" },
+  ]);
+
   document.getElementById("logoutBtn").addEventListener("click", () => {
     // Real sign-out now happens at Cloudflare Access, not in this page's
     // memory — clearing local `session` alone would leave the Access

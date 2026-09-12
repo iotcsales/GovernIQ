@@ -165,6 +165,9 @@
   .ans-row .val{font-size:13.5px;color:var(--slate-dark);line-height:1.5;}
   .ans-row.answer .val{font-family:'Fraunces','Noto Serif Devanagari',serif;font-size:16px;font-weight:500;}
   .conf-badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:5px;}
+  .ask-turn{border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px;}
+  .ask-turn:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+  .ask-question{font-family:'Fraunces','Noto Serif Devanagari',serif;font-size:14px;font-weight:600;color:var(--ink);margin-bottom:8px;}
   .conf-High{background:var(--teal-tint);color:var(--teal);}
   .conf-Medium{background:var(--amber-tint);color:var(--amber);}
   .conf-Low{background:var(--brick-tint);color:var(--brick);}
@@ -329,7 +332,7 @@ const UI = {
     tasks:"Tasks", noTasksYet:"No tasks yet.", due:"due", markDone:"Mark done", done:"Done", taskPlaceholder:"Task",
     searchPlaceholder:"Search...", allStatuses:"All statuses", allCategories:"All categories", allPriorities:"All priorities",
     allAssignees:"All assignees", allDepartments:"All departments", allTypes:"All types", exportCsv:"Export CSV", exportPdf:"Export PDF",
-    noResultsMatch:"No records match these filters.", loadMore:"Load more", more:"more", share:"Share",
+    noResultsMatch:"No records match these filters.", loadMore:"Load more", more:"more", share:"Share", newChat:"New chat",
     add:"Add", evidence:"Evidence", noEvidenceYet:"No evidence recorded.", evidencePlaceholder:"Evidence description (e.g. photo of hand pump)",
     auditHistory:"Audit history", askPlaceholder:"Ask GovernIQ about these cases...", ask:"Ask", thinking:"Thinking...",
     answer:"Answer", couldNotReach:"Could not reach GovernIQ right now.", citizenName:"Citizen name", contactNumber:"Contact number",
@@ -755,6 +758,18 @@ let grievances = [];
 let projects = [];
 let documents = [];
 let commitments = [];
+
+// Ask GovernIQ conversation memory (P3) — session-scoped, client-side
+// only. Nothing here is persisted server-side; it resets on page reload
+// or logout, same as the rest of this app's in-memory state. Each entry
+// is {question, answer} where answer is the full structured response
+// object the AI returned, so replaying it back as conversation history
+// on the next question gives the model its own prior answer verbatim,
+// not a lossy summary.
+let askHistory = [];
+let askLoading = false;
+let askError = null;
+const ASK_HISTORY_SENT = 6; // how many recent turns are sent as context on each new question
 
 // ---------------------------------------------------------------------
 // Search / filter / pagination (client-side — all four lists are already
@@ -1828,13 +1843,40 @@ function renderDetail() {
   `;
 }
 
-function renderAskBar() {
+function renderAskTurn(turn) {
+  const out = turn.answer;
   return `
-    <div class="ask-answer" id="askAnswerWrap" style="display:none;"><div class="ask-answer-inner" id="askAnswerInner"></div></div>
+    <div class="ask-turn">
+      <div class="ask-question"><bdi>${escapeHtml(turn.question)}</bdi></div>
+      <div class="ans-row answer"><span class="lbl">${escapeHtml(t("answer"))}</span><div class="val"><bdi>${escapeHtml(out.answer)}</bdi></div></div>
+      <div class="ans-row"><span class="lbl">${escapeHtml(t("whyItMatters"))}</span><div class="val"><bdi>${escapeHtml(out.why_it_matters || "")}</bdi></div></div>
+      <div class="ans-row"><span class="lbl">${escapeHtml(t("evidence"))}</span><div class="val"><bdi>${escapeHtml(out.evidence || "")}</bdi></div></div>
+      <div class="ans-row"><span class="lbl">${escapeHtml(t("confidence"))}</span><div class="val"><span class="conf-badge conf-${out.confidence}"><bdi>${escapeHtml(out.confidence || "")}</bdi></span></div></div>
+      <div class="ans-row"><span class="lbl">${escapeHtml(t("whatsMissing"))}</span><div class="val"><bdi>${escapeHtml(out.whats_missing || "")}</bdi></div></div>
+      <div class="ans-row"><span class="lbl">${escapeHtml(t("recommendedNextStep"))}</span><div class="val"><bdi>${escapeHtml(out.recommended_next_step || "")}</bdi></div></div>
+    </div>`;
+}
+
+function renderAskBar() {
+  const hasContent = askHistory.length > 0 || askLoading || askError;
+  return `
+    <div class="ask-answer" id="askAnswerWrap" style="${hasContent ? "display:flex;" : "display:none;"}">
+      <div class="ask-answer-inner" id="askAnswerInner">
+        ${askHistory.length > 0 ? `<div class="btn-row" style="margin-bottom:12px;"><button class="btn" id="newAskChatBtn">${t("newChat")}</button></div>` : ""}
+        ${askHistory.map(renderAskTurn).join("")}
+        ${askLoading ? `<div><span class="spinner"></span>${t("thinking")}</div>` : ""}
+        ${askError ? `<div class="no-results">${escapeHtml(askError)}</div>` : ""}
+      </div>
+    </div>
     <div class="askbar-wrap"><div class="askbar">
       <input id="askInput" type="text" placeholder="${t("askPlaceholder")}" />
       <button id="askBtn">${t("ask")}</button>
     </div></div>`;
+}
+
+function scrollAskToBottom() {
+  const inner = document.getElementById("askAnswerInner");
+  if (inner) inner.scrollTop = inner.scrollHeight;
 }
 
 // =====================================================================
@@ -2527,29 +2569,42 @@ function attachAppHandlers() {
   });
 
   document.getElementById("askBtn").addEventListener("click", async () => {
-    const q = document.getElementById("askInput").value.trim();
-    if (!q) return;
-    const wrap = document.getElementById("askAnswerWrap"), inner = document.getElementById("askAnswerInner");
-    wrap.style.display = "flex"; inner.innerHTML = `<div><span class="spinner"></span>${t("thinking")}</div>`;
+    const askInputEl = document.getElementById("askInput");
+    const q = askInputEl.value.trim();
+    if (!q || askLoading) return;
+    askInputEl.value = "";
+    askLoading = true;
+    askError = null;
+    render();
+    scrollAskToBottom();
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // canSeeSensitive is no longer sent from the browser — the server
-        // derives it from the caller's verified role instead.
-        body: JSON.stringify({ question: q }),
+        // derives it from the caller's verified role instead. `history`
+        // carries the last few turns of THIS session's conversation so
+        // follow-up questions ("what about that one") actually resolve
+        // against prior context — nothing here is stored server-side.
+        body: JSON.stringify({ question: q, history: askHistory.slice(-ASK_HISTORY_SENT) }),
       });
       const out = await res.json();
       if (out.error) throw new Error(out.error);
-      inner.innerHTML = `
-        <div class="ans-row answer"><span class="lbl">${escapeHtml(t("answer"))}</span><div class="val"><bdi>${escapeHtml(out.answer)}</bdi></div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("whyItMatters"))}</span><div class="val"><bdi>${escapeHtml(out.why_it_matters || "")}</bdi></div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("evidence"))}</span><div class="val"><bdi>${escapeHtml(out.evidence || "")}</bdi></div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("confidence"))}</span><div class="val"><span class="conf-badge conf-${out.confidence}"><bdi>${escapeHtml(out.confidence || "")}</bdi></span></div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("whatsMissing"))}</span><div class="val"><bdi>${escapeHtml(out.whats_missing || "")}</bdi></div></div>
-        <div class="ans-row"><span class="lbl">${escapeHtml(t("recommendedNextStep"))}</span><div class="val"><bdi>${escapeHtml(out.recommended_next_step || "")}</bdi></div></div>
-      `;
-    } catch (e) { inner.innerHTML = `<div>${t("couldNotReach")}</div>`; }
+      askHistory.push({ question: q, answer: out });
+    } catch (e) {
+      askError = t("couldNotReach");
+    } finally {
+      askLoading = false;
+      render();
+      scrollAskToBottom();
+    }
+  });
+
+  const newAskChatBtn = document.getElementById("newAskChatBtn");
+  if (newAskChatBtn) newAskChatBtn.addEventListener("click", () => {
+    askHistory = [];
+    askError = null;
+    render();
   });
 }
 

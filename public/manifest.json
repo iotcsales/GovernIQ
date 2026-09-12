@@ -1,0 +1,11 @@
+{
+  "name": "GovernIQ",
+  "short_name": "GovernIQ",
+  "icons": [
+    { "src": "logo.png", "sizes": "240x240", "type": "image/png" }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1E2C4C",
+  "background_color": "#EEEBE3"
+}
